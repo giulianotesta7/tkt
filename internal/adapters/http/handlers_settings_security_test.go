@@ -317,6 +317,7 @@ func TestSettingsSecurityExplainsRecoveryNeedsEmail(t *testing.T) {
 		t.Errorf("an administrator must not be offered a link to a section they cannot open, got: %.1500s", adminBody)
 	}
 
+	seedInstanceAddress(t, h, "https://tkt.tkt.test")
 	if err := h.emailSettings.Save(t.Context(), *root, application.EmailSettingsInput{
 		Enabled:     true,
 		Host:        "smtp.tkt.test",

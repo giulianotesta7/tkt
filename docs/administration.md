@@ -14,8 +14,8 @@ Each role includes everything below it.
 | --- | --- |
 | **User** | Create tickets, reply publicly on their own tickets, answer the resolution confirmation. |
 | **Agent** | Everything a user can do, plus work on tickets assigned to them or waiting on their desks: edit, change state, assign, write public replies and internal notes. |
-| **Admin** | Everything an agent can do, plus manage people (except admin and root accounts), desks, categories, workflows, metrics, service users and API keys, and every setting except email and the API switch. |
-| **Root** | Everything, plus grant and remove the **Admin** role, manage email settings, and turn the API on or off. |
+| **Admin** | Everything an agent can do, plus manage people (except admin and root accounts), desks, categories, workflows, metrics, service users and API keys, and every setting except Instance, email and the API switch. |
+| **Root** | Everything, plus grant and remove the **Admin** role, manage Instance and email settings, and turn the API on or off. |
 
 - Claimable tickets come from the desks a person belongs to, so add each agent to the desk
   that owns the category. Assigned tickets appear either way.
@@ -143,6 +143,34 @@ of $0.10 per million uncached input tokens and no output charge, the estimated 2
 tokens (characters divided by four) would cost about **$0.03 for the run**, or **$0.14 per 1,000
 similar requests**. This is not a billed total; cache writes and regional premiums are excluded.
 
+## Instance
+
+Only root can open **Settings → Instance**:
+
+- **TKT address** is the one public HTTP or HTTPS address used by notification links,
+  password recovery and company sign-in callbacks. Deployment paths are supported, such as
+  `https://tkt.example.com/help`; do not paste a provider callback URL. Address changes are
+  audited. Turn off email and company providers before clearing it.
+- **Interface language** selects the default English or Spanish interface. Existing language
+  settings are retained. Personal choices in **Preferences** take precedence and are unchanged.
+  The old Language page redirects here; its old save endpoint no longer accepts changes.
+- **About** shows the running tkt release version, or its source revision when available.
+  An unversioned source archive reports `dev`. This value is read-only, not a database setting.
+
+During upgrade, the existing email address wins if both stored addresses differ. A prominent
+notice preserves the old company sign-in address so root can check provider registrations.
+If only one address was set, it is retained; equal addresses are retained as well.
+
+### Company sign-in
+
+Configure Google Workspace and Microsoft Entra in **Settings → Security**. Administrators
+can manage providers, but the public address is read-only there and only root changes it in
+Instance. Copy each displayed callback URL into its provider console. Changing the Instance
+address changes those callbacks: update both registrations before relying on company sign-in.
+
+MCP is not included in this base yet (#493). Its follow-up integration will read the same
+Instance address; it does not introduce another address field or move API switches.
+
 ## Email notifications
 
 Only root configures email, in **Settings → Email notifications**: server, port (25 when
@@ -155,7 +183,7 @@ works; email adds a copy of the same notifications.
 | **Username** and **Password** | empty | Optional for a server that accepts mail without authentication. A saved password is never shown again; leave the field empty to keep it. |
 | **Do not verify the certificate** | off | Keeps the connection encrypted but stops tkt from checking who is on the other end. |
 | **Sender address** and **Sender name** | empty | The sender recipients see; the name is optional. |
-| **TKT address** | empty | Public address of the instance. See [Deployment](deployment.md#the-public-base-url). |
+| **TKT address** | empty | Read-only here; root configures it in **Settings → Instance** before enabling email. See [Deployment](deployment.md#the-public-base-url). |
 
 **Send test email** sends one message to the signed-in root account with the saved
 configuration. A background worker delivers notifications every 15 seconds.

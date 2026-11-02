@@ -377,7 +377,7 @@ func TestS6RefusedDeleteKeepsTheStructureSelection(t *testing.T) {
 
 	// The same refusal in a Spanish instance renders the translated error, and
 	// the native (no-HTML-override) path keeps the selection too.
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 	spanish := post(false, selection)

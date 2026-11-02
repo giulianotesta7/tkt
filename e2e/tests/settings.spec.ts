@@ -18,6 +18,17 @@ import { createTicketViaUi, openPreferencesFromUserMenu } from "./helpers/naviga
 import { createSuggestableCategory } from "./helpers/suggestions.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 
+// Fixture for consumers: the address is no longer editable in their forms.
+async function configureInstanceAddress(page: Page): Promise<void> {
+  await page.goto(base() + "/settings/instance");
+  const address = page.getByLabel("TKT address", { exact: true });
+  if ((await address.inputValue()) !== "https://tkt.example.com") {
+    await address.fill("https://tkt.example.com");
+    await page.getByRole("button", { name: "Save TKT address", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/instance$/);
+  }
+}
+
 /**
  * Promote a freshly created user to administrator and return the credentials.
  *
@@ -860,15 +871,15 @@ test.describe("Settings", () => {
     await expect(updated).toHaveText(/^(just now|\d+ (min|h|d) ago)$/);
     await expect(updated).toHaveAttribute("title", /^\d{2}:\d{2} · \d{2}-\d{2}-\d{4}$/);
 
-    // Switch the instance-wide language from Settings.
-    await page.goto(base() + "/settings/language");
+    // Switch the instance-wide language from the root-owned Instance section.
+    await page.goto(base() + "/settings/instance");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
     // The language is a segmented choice (design 02): the radios are visually
     // replaced by their labels, so the journey clicks the segment a person sees.
     await expect(page.getByRole("radio", { name: "English" })).toBeChecked();
     await page.locator(".settings-segment label").filter({ hasText: "Español" }).click();
     await page.getByRole("button", { name: "Save language" }).click();
-    await expect(page).toHaveURL(/\/settings\/language$/);
+    await expect(page).toHaveURL(/\/settings\/instance$/);
 
     // The save lands on a NEW request, so the whole shell follows the saved
     // language — including the save toast the previous request issued.
@@ -928,10 +939,10 @@ test.describe("Settings", () => {
     await expect(headerTime).toHaveText(/^(recién|hace \d+ (min|h|d))$/);
 
     // Switch back to English and prove the previous language is restored.
-    await page.goto(base() + "/settings/language");
+    await page.goto(base() + "/settings/instance");
     await page.locator(".settings-segment label").filter({ hasText: "English" }).click();
     await page.getByRole("button", { name: "Guardar idioma" }).click();
-    await expect(page).toHaveURL(/\/settings\/language$/);
+    await expect(page).toHaveURL(/\/settings\/instance$/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(page.locator("h1").filter({ hasText: "Settings" })).toBeVisible();
     await expect(page.getByRole("radio", { name: "English" })).toBeChecked();
@@ -980,6 +991,9 @@ test.describe("Settings", () => {
         .filter({ hasText: "Email notifications" }),
     ).toBeVisible();
 
+    await configureInstanceAddress(page);
+    await page.goto(base() + "/settings/email");
+
     // An open internal relay (S2): no credentials, so no encryption is
     // required either (S15). Port 1 is deliberately a port nothing listens
     // on, and the values are filled rather than assumed, so the journey does
@@ -999,7 +1013,7 @@ test.describe("Settings", () => {
     ).toBeVisible();
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
     await page.getByLabel("Sender name", { exact: true }).fill("TKT Notifications");
-    await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
+    await expect(page.getByLabel("TKT address", { exact: true })).toHaveAttribute("readonly", "");
     await page.getByRole("button", { name: "Save email notifications" }).click();
     await expect(page).toHaveURL(/\/settings\/email$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
@@ -1062,6 +1076,9 @@ test.describe("Settings", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/email");
 
+    await configureInstanceAddress(page);
+    await page.goto(base() + "/settings/email");
+
     // Fixture: a server that refuses the connection, reached with credentials.
     // Credentials force STARTTLS (S15/S16), so this journey also carries a
     // secret that no response is allowed to bring back (S8).
@@ -1075,7 +1092,6 @@ test.describe("Settings", () => {
     await page.getByLabel("Username", { exact: true }).fill("tkt-smtp");
     await page.getByLabel("Password", { exact: true }).fill(secret);
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
-    await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
     await page.getByRole("button", { name: "Save email notifications" }).click();
     await expect(page).toHaveURL(/\/settings\/email$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
@@ -1105,6 +1121,8 @@ test.describe("Settings", () => {
     await loginAsSeeded(page);
     await page.goto(base() + "/settings/email");
 
+    await configureInstanceAddress(page);
+    await page.goto(base() + "/settings/email");
     await page
       .getByRole("checkbox", { name: "My server does not require authentication" })
       .uncheck();
@@ -1115,7 +1133,6 @@ test.describe("Settings", () => {
     await page.getByLabel("Username", { exact: true }).fill("tkt-smtp");
     await page.getByLabel("Password", { exact: true }).fill(secret);
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
-    await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
     await page.getByRole("button", { name: "Save email notifications" }).click();
     await expect(page).toHaveURL(/\/settings\/email$/);
     await expect(page.locator("#save-feedback")).toContainText("Saved");
@@ -1267,6 +1284,8 @@ test.describe("Settings", () => {
 
     const passwordForm = page.locator('form[action="/settings/security"]');
     const companyForm = page.locator('form[action="/settings/security/company"]');
+    await configureInstanceAddress(page);
+    await page.goto(base() + "/settings/security");
     await expect(companyForm).toBeVisible();
 
     // The password policy this journey leaves alone, read before the save so
@@ -1278,10 +1297,13 @@ test.describe("Settings", () => {
     const policyChange = await change.isChecked();
     const policyMinimum = await minimum.inputValue();
 
-    // Changing the shared TKT address reveals the company form's own save bar,
-    // and the password form's bar stays hidden: one form per configuration.
+    // Company policy still saves independently; the shared address is read-only.
     const address = companyForm.getByLabel("TKT address", { exact: true });
-    await address.fill("https://tkt.example.com");
+    await expect(address).toHaveAttribute("readonly", "");
+    const accounts = companyForm.locator(
+      'input[name="company_signin_new_accounts"][value="pending"]',
+    );
+    await accounts.locator("..").click();
     await expect(companyForm.locator("[data-settings-savebar]")).toBeVisible();
     await expect(passwordForm.locator("[data-settings-savebar]")).toBeHidden();
     await companyForm.getByRole("button", { name: "Save company sign-in" }).click();
@@ -1290,6 +1312,7 @@ test.describe("Settings", () => {
 
     // The company save persists and leaves the password policy untouched.
     await page.reload();
+    await expect(accounts).toBeChecked();
     await expect(companyForm.getByLabel("TKT address", { exact: true })).toHaveValue(
       "https://tkt.example.com",
     );
@@ -1458,7 +1481,7 @@ test.describe("Preferences", () => {
         "Español",
       ]);
 
-      await page.goto(base() + "/settings/language");
+      await page.goto(base() + "/settings/instance");
       await page.locator(".settings-segment label").filter({ hasText: "Español" }).click();
       await page.getByRole("button", { name: "Save language" }).click();
       await expect(page.locator("html")).toHaveAttribute("lang", "es");
@@ -1476,7 +1499,7 @@ test.describe("Preferences", () => {
       await expect(choice).toHaveValue("en");
       await expect(page.locator("html")).toHaveAttribute("lang", "es");
 
-      await page.goto(base() + "/settings/language");
+      await page.goto(base() + "/settings/instance");
       await page.locator(".settings-segment label").filter({ hasText: "English" }).click();
       await page.getByRole("button", { name: "Guardar idioma" }).click();
       await user.reload();
@@ -1721,7 +1744,7 @@ test.describe("Preferences", () => {
     const entries = [
       { label: "Organization", url: /\/settings\/organization$/ },
       { label: "Sign-in page", url: /\/settings\/signin$/ },
-      { label: "Language", url: /\/settings\/language$/ },
+      { label: "Instance", url: /\/settings\/instance$/ },
       { label: "Tickets & SLA", url: /\/settings\/tickets$/ },
       { label: "Email notifications", url: /\/settings\/email$/ },
       { label: "Security", url: /\/settings\/security$/ },

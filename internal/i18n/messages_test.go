@@ -225,6 +225,8 @@ var nonKeyGoLiterals = map[string]bool{
 	"base.html":            true,
 	"go.mod":               true,
 	"smtp.key":             true,
+	// Go build metadata identifies the source revision, not translated copy.
+	"vcs.revision": true,
 	// Download file names (issue #409): they name the file the browser saves,
 	// not copy a reader sees, so they stay stable across instance languages.
 	"tickets.csv": true,

@@ -552,7 +552,7 @@ func TestMultipartSpillFilesAreRemovedAfterHandling(t *testing.T) {
 // instead of falling back to the English domain text.
 func TestSpanishAttachmentCopyFollowsTheInstanceLanguage(t *testing.T) {
 	h := newHarness(t)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 

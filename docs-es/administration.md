@@ -14,8 +14,8 @@ Cada rol incluye todo lo que hay debajo.
 | --- | --- |
 | **Usuario** | Crear tickets, responder públicamente en sus propios tickets y contestar la confirmación de resolución. |
 | **Agente** | Todo lo de Usuario, más trabajar en los tickets asignados o en los que esperan en sus mesas: editar, cambiar de estado, asignar y escribir respuestas públicas y notas internas. |
-| **Administrador** | Todo lo de Agente, más gestionar usuarios (salvo las cuentas administrador y root), mesas, categorías, flujos de trabajo, métricas, usuarios de servicio y claves de API, y toda la configuración excepto el email y el interruptor de la API. |
-| **Root** | Todo, más otorgar y quitar el rol **Administrador**, gestionar el email y encender o apagar la API. |
+| **Administrador** | Todo lo de Agente, más gestionar usuarios (salvo las cuentas administrador y root), mesas, categorías, flujos de trabajo, métricas, usuarios de servicio y claves de API, y toda la configuración excepto Instancia, el email y el interruptor de la API. |
+| **Root** | Todo, más otorgar y quitar el rol **Administrador**, gestionar Instancia y el email, y encender o apagar la API. |
 
 - Los tickets que se pueden tomar dependen de las mesas de cada persona, así que sumá a cada
   agente a la mesa de su categoría. Los tickets asignados aparecen igual.
@@ -146,6 +146,35 @@ entrada estimados (caracteres divididos por cuatro) costarían unos **$0,03 por 
 **$0,14 por cada 1.000 solicitudes similares**. No es un total facturado; excluye escrituras de
 caché y recargos regionales.
 
+## Instancia
+
+Solo root puede abrir **Configuración → Instancia**:
+
+- **Dirección de TKT** es la única dirección pública HTTP o HTTPS usada por los enlaces de
+  notificación, la recuperación de contraseñas y los retornos del inicio de sesión de la empresa.
+  Admite rutas de instalación, como `https://tkt.example.com/help`; no pegues una URL de retorno
+  del proveedor. Los cambios quedan auditados. Desactiva el correo y los proveedores antes de borrarla.
+- **Idioma de la interfaz** elige inglés o español como idioma predeterminado. Se conserva el
+  idioma existente. Las elecciones personales en **Preferencias** tienen prioridad y no cambian.
+  La antigua página Idioma redirige aquí; su endpoint de guardado ya no acepta cambios.
+- **Acerca de** muestra la versión de tkt o, si está disponible, la revisión del código fuente.
+  Un archivo fuente sin metadatos muestra `dev`. Es de solo lectura, no un ajuste de la base.
+
+Al actualizar, si las dos direcciones guardadas difieren, prevalece la del correo. Un aviso
+visible conserva la anterior dirección del inicio de sesión de la empresa para revisar los
+registros de los proveedores. Si había una sola dirección o ambas eran iguales, se conserva.
+
+### Inicio de sesión de la empresa
+
+Configura Google Workspace y Microsoft Entra en **Configuración → Seguridad**. Los
+administradores gestionan los proveedores, pero allí la dirección pública es de solo lectura:
+solo root la cambia en Instancia. Copia cada URL de retorno en la consola del proveedor.
+Al cambiar la dirección de Instancia cambian esos retornos; actualiza ambos registros antes
+de depender del inicio de sesión de la empresa.
+
+MCP todavía no está incluido en esta base (#493). Su integración posterior leerá la misma
+dirección de Instancia, sin agregar otro campo de dirección ni mover los interruptores de API.
+
 ## Notificaciones por email
 
 Solo root configura el email, en **Configuración → Notificaciones por email**: servidor, puerto
@@ -158,7 +187,7 @@ notificaciones sigue funcionando; el email agrega una copia de las mismas notifi
 | **Usuario** y **Contraseña** | vacíos | Opcionales si el servidor acepta correo sin autenticación. La contraseña guardada no se vuelve a mostrar; dejá el campo vacío para conservarla. |
 | **No verificar el certificado** | desactivado | Mantiene la conexión cifrada pero deja de comprobar con quién se habla. |
 | **Dirección del remitente** y **Nombre del remitente** | vacíos | El remitente que ven los destinatarios; el nombre es opcional. |
-| **Dirección de TKT** | vacía | Dirección pública que usan los enlaces enviados. Ver [Despliegue](deployment.md#la-url-base-pública). |
+| **Dirección de TKT** | vacía | Solo lectura aquí; root la configura en **Configuración → Instancia** antes de activar el correo. Ver [Despliegue](deployment.md#la-url-base-pública). |
 
 **Enviar email de prueba** manda un mensaje a la cuenta root con sesión iniciada usando la
 configuración guardada. Un proceso en segundo plano entrega las notificaciones cada 15 segundos.

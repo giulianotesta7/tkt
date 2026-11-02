@@ -54,6 +54,7 @@ import (
 // minimum length new passwords must meet) as one card of a section that later
 // instance-wide sign-in controls can join.
 type SettingsHandlers struct {
+	instance     *application.InstanceSettingsService
 	settings     *application.SettingsService
 	sla          *application.SLAService
 	slaStore     application.SLAStore
@@ -131,7 +132,8 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings/{section}", h.section)
 	mux.HandleFunc("POST /settings/appearance", h.updateAppearance)
 	mux.HandleFunc("POST /settings/ticket-creation", h.updateTicketCreation)
-	mux.HandleFunc("POST /settings/language", h.updateLanguage)
+	mux.HandleFunc("POST /settings/instance/language", h.updateLanguage)
+	mux.HandleFunc("POST /settings/instance", h.updateInstance)
 	mux.HandleFunc("POST /settings/sla", h.updateSLA)
 	mux.HandleFunc("POST /settings/hold-auto-close", h.updateHoldAutoClose)
 	mux.HandleFunc("POST /settings/calendar", h.updateCalendar)
@@ -153,6 +155,7 @@ func (h *SettingsHandlers) Register(mux *http.ServeMux) {
 // The settings sections, named exactly as their URL segment (S1).
 const (
 	settingsSectionOrganization = "organization"
+	settingsSectionInstance     = "instance"
 	settingsSectionSignin       = "signin"
 	settingsSectionLanguage     = "language"
 	settingsSectionTickets      = "tickets"
@@ -182,9 +185,9 @@ type settingsNavItem struct {
 // The API entry (issue #488) follows the same rule through canManageAPI.
 func settingsNavItems(active string, canManageEmail, canManageAPI bool) []settingsNavItem {
 	items := []settingsNavItem{
+		{Section: settingsSectionInstance, Href: settingsSectionHref(settingsSectionInstance), Label: "settings.nav.instance"},
 		{Section: settingsSectionOrganization, Href: settingsSectionHref(settingsSectionOrganization), Label: "settings.nav.organization"},
 		{Section: settingsSectionSignin, Href: settingsSectionHref(settingsSectionSignin), Label: "settings.nav.signin"},
-		{Section: settingsSectionLanguage, Href: settingsSectionHref(settingsSectionLanguage), Label: "settings.nav.language"},
 		{Section: settingsSectionTickets, Href: settingsSectionHref(settingsSectionTickets), Label: "settings.nav.tickets"},
 		{Section: settingsSectionEmail, Href: settingsSectionHref(settingsSectionEmail), Label: "settings.nav.email"},
 		{Section: settingsSectionSecurity, Href: settingsSectionHref(settingsSectionSecurity), Label: "settings.nav.security"},
@@ -193,7 +196,7 @@ func settingsNavItems(active string, canManageEmail, canManageAPI bool) []settin
 	}
 	out := make([]settingsNavItem, 0, len(items))
 	for _, item := range items {
-		if item.Section == settingsSectionEmail && !canManageEmail {
+		if (item.Section == settingsSectionEmail || item.Section == settingsSectionInstance) && !canManageEmail {
 			continue
 		}
 		if item.Section == settingsSectionAPI && !canManageAPI {
@@ -516,9 +519,21 @@ func (h *SettingsHandlers) index(w http.ResponseWriter, r *http.Request) {
 func (h *SettingsHandlers) section(w http.ResponseWriter, r *http.Request) {
 	section := r.PathValue("section")
 	switch section {
-	case settingsSectionOrganization, settingsSectionSignin, settingsSectionLanguage, settingsSectionTickets, settingsSectionCalendar, settingsSectionEmail, settingsSectionSecurity, settingsSectionAPI:
+	case settingsSectionInstance, settingsSectionOrganization, settingsSectionSignin, settingsSectionLanguage, settingsSectionTickets, settingsSectionCalendar, settingsSectionEmail, settingsSectionSecurity, settingsSectionAPI:
 	default:
 		http.NotFound(w, r)
+		return
+	}
+	if section == settingsSectionLanguage {
+		if h.requireInstance(w, r) {
+			redirect(w, r, settingsSectionHref(settingsSectionInstance))
+		}
+		return
+	}
+	if section == settingsSectionInstance {
+		if h.requireInstance(w, r) {
+			h.renderInstance(w, r, http.StatusOK, "", nil)
+		}
 		return
 	}
 	if section == settingsSectionAPI {
@@ -539,8 +554,6 @@ func (h *SettingsHandlers) section(w http.ResponseWriter, r *http.Request) {
 		h.renderOrganization(w, r, http.StatusOK, "", nil)
 	case settingsSectionSignin:
 		h.renderSignin(w, r, http.StatusOK, "", nil)
-	case settingsSectionLanguage:
-		h.renderLanguage(w, r, http.StatusOK, "")
 	case settingsSectionTickets:
 		h.renderTickets(w, r, http.StatusOK, "", nil)
 	case settingsSectionCalendar:
@@ -744,7 +757,7 @@ func (h *SettingsHandlers) renderLanguage(w http.ResponseWriter, r *http.Request
 // section: because the redirect is a new request, the middleware reads the saved
 // language and the page the administrator lands on renders in it.
 func (h *SettingsHandlers) updateLanguage(w http.ResponseWriter, r *http.Request) {
-	if !requireCapability(w, r, application.CapManageSettings) {
+	if !h.requireInstance(w, r) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -759,7 +772,7 @@ func (h *SettingsHandlers) updateLanguage(w http.ResponseWriter, r *http.Request
 			http.Error(w, msg, status)
 			return
 		}
-		h.renderLanguage(w, r, status, msg)
+		h.renderInstance(w, r, status, msg, nil)
 		return
 	}
 	// The save toast is resolved into the flash cookie on THIS request, so it
@@ -769,7 +782,7 @@ func (h *SettingsHandlers) updateLanguage(w http.ResponseWriter, r *http.Request
 		r = r.WithContext(context.WithValue(r.Context(), ctxKeyInterfaceLanguage{}, submitted))
 	}
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
-	redirect(w, r, settingsSectionHref(settingsSectionLanguage))
+	redirect(w, r, settingsSectionHref(settingsSectionInstance))
 }
 
 // ---------------------------------------------------------------------------
@@ -1235,7 +1248,6 @@ func emailInputFromForm(r *http.Request) application.EmailSettingsInput {
 		Password:      password,
 		FromAddress:   r.Form.Get("email_from_address"),
 		FromName:      r.Form.Get("email_from_name"),
-		BaseURL:       r.Form.Get("email_base_url"),
 	}
 }
 
@@ -1253,7 +1265,6 @@ func echoEmailForm(panel emailPanelData, r *http.Request) emailPanelData {
 	panel.NoAuth = r.Form.Get("email_no_auth") == "1"
 	panel.FromAddress = in.FromAddress
 	panel.FromName = in.FromName
-	panel.BaseURL = in.BaseURL
 	panel.Encryptions = emailEncryptionOptions(in.Encryption)
 	return panel
 }
@@ -1270,6 +1281,12 @@ func (h *SettingsHandlers) updateEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := r.ParseForm(); err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+		return
+	}
+	if _, submitted := r.Form["email_base_url"]; submitted {
+		h.renderEmail(w, r, http.StatusUnprocessableEntity, i18n.New(requestLocale(r)).T("error.legacy_instance_address"), func(panel *emailPanelData) {
+			*panel = echoEmailForm(*panel, r)
+		})
 		return
 	}
 	actor := *userFromContext(r.Context())
@@ -1499,7 +1516,7 @@ func (h *SettingsHandlers) renderSecurity(w http.ResponseWriter, r *http.Request
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
-	configured, baseURL, err := h.emailDelivery(r)
+	configured, _, err := h.emailDelivery(r)
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
@@ -1520,11 +1537,6 @@ func (h *SettingsHandlers) renderSecurity(w http.ResponseWriter, r *http.Request
 			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 			return
 		}
-		// The Email section's TKT address is the same public address, so a fresh
-		// instance starts from it instead of an empty field.
-		if company.Address == "" {
-			company.Address = baseURL
-		}
 		data.Company = newSettingsCompanySignIn(company)
 	}
 	data.Error = message
@@ -1537,6 +1549,9 @@ func (h *SettingsHandlers) renderSecurity(w http.ResponseWriter, r *http.Request
 		if echo.Company != nil && data.Company != nil {
 			// Secrets are write-only: the submitted form never carries one back,
 			// so the saved indicators still come from the store.
+			echo.Company.Address = data.Company.Address
+			echo.Company.Google.RedirectURI = data.Company.Google.RedirectURI
+			echo.Company.Microsoft.RedirectURI = data.Company.Microsoft.RedirectURI
 			echo.Company.Google.SecretSet = data.Company.Google.SecretSet
 			echo.Company.Microsoft.SecretSet = data.Company.Microsoft.SecretSet
 			data.Company = echo.Company
@@ -1613,7 +1628,6 @@ func (h *SettingsHandlers) updateCompanySignIn(w http.ResponseWriter, r *http.Re
 		return
 	}
 	in := application.CompanySignInInput{
-		Address:               r.Form.Get("company_signin_address"),
 		NewAccounts:           application.NewAccountPolicy(r.Form.Get("company_signin_new_accounts")),
 		PasswordSignInEnabled: r.Form.Get("password_signin_enabled") == "1",
 		Google: application.GoogleSignInInput{
@@ -1628,6 +1642,10 @@ func (h *SettingsHandlers) updateCompanySignIn(w http.ResponseWriter, r *http.Re
 			ClientID:     r.Form.Get("microsoft_client_id"),
 			ClientSecret: r.Form.Get("microsoft_client_secret"),
 		},
+	}
+	if _, submitted := r.Form["company_signin_address"]; submitted {
+		h.renderSecurity(w, r, http.StatusUnprocessableEntity, i18n.New(requestLocale(r)).T("error.legacy_instance_address"), &securityEcho{Company: newSettingsCompanySignInFromInput(in)})
+		return
 	}
 	if err := h.companySettings.Update(r.Context(), *userFromContext(r.Context()), in); err != nil {
 		status, msg := mapErrorFor(r, err)

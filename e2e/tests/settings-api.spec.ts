@@ -179,9 +179,12 @@ test.describe("API service user inspector without JavaScript", () => {
           );
       }
     }
-    await page.goto(base() + "/settings/language");
-    await page.locator(".settings-segment label").filter({ hasText: "Español" }).click();
-    await page.getByRole("button", { name: "Save language" }).click();
+    // Leave the narrow layout before submitting: the fixed mobile tab bar can cover the form.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(base() + "/settings/instance");
+    const language = page.locator('form[action="/settings/instance/language"]');
+    await language.locator("label").filter({ hasText: "Español" }).click();
+    await language.getByRole("button", { name: "Save language", exact: true }).click();
     await page.goto(base() + "/settings/api");
     for (const [name, text] of [
       ["Count zero", "0 claves"],
@@ -192,9 +195,10 @@ test.describe("API service user inspector without JavaScript", () => {
         text,
       );
     }
-    await page.goto(base() + "/settings/language");
-    await page.locator(".settings-segment label").filter({ hasText: "English" }).click();
-    await page.locator('form[action="/settings/language"] button[type="submit"]').click();
+    await page.goto(base() + "/settings/instance");
+    await language.locator("label").filter({ hasText: "English" }).click();
+    await language.locator('button[type="submit"]').click();
+    await expect(page.locator("html")).toHaveAttribute("lang", "en");
   });
 
   test("selection remains on a non-first service user after successful key creation", async ({

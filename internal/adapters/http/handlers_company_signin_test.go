@@ -100,6 +100,7 @@ func companySignInIn(newAccounts application.NewAccountPolicy) application.Compa
 // the client secrets are sealed exactly as production seals them.
 func companySignInStore(t *testing.T, h *harness, in application.CompanySignInInput) {
 	t.Helper()
+	seedInstanceAddress(t, h, strings.TrimRight(strings.TrimSpace(in.Address), "/"))
 	if err := h.companySettings.Update(context.Background(), *h.admin, in); err != nil {
 		t.Fatalf("store company sign-in settings: %v", err)
 	}
@@ -707,7 +708,7 @@ func TestLoginPageCompanyStatesInSpanish(t *testing.T) {
 func TestCompanyRefusalIsLocalized(t *testing.T) {
 	h := newHarness(t)
 	companySignInStore(t, h, companySignInIn(application.NewAccountsRequester))
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set the interface language: %v", err)
 	}
 	h.companyProvider.claims = googleClaims("ana@other.example.com")

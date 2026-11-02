@@ -221,7 +221,7 @@ func main() {
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
-	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).WithAPIAccess(apiAccessSvc).Register(mux)
+	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithInstance(application.NewInstanceSettingsService(store.InstanceSettingsStore(), clock)).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).WithAPIAccess(apiAccessSvc).Register(mux)
 	httpadapter.NewCategorySLAHandlers(catSvc, slaSvc, store.SLAStore(), renderer).Register(mux)
 	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(userSvc, passwordSettingsSvc).Register(mux)
 	// Issue #419: the bell and the full feed render the account a pending notice

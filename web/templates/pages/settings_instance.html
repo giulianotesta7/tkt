@@ -1,0 +1,49 @@
+{{define "title"}}{{tf "base.title.screen" (t "settings.title") (brandHelpDesk .Brand)}}{{end}}
+{{define "content"}}
+<div class="command-header">
+  <div><h1 class="command-title">{{t "settings.title"}}</h1><p class="settings-subtitle">{{t "settings.subtitle"}}</p></div>
+</div>
+<div class="settings-layout">
+{{template "settings_nav" .}}
+  <div class="settings-content">
+{{if .Error}}    <div class="error-banner" role="alert">{{.Error}}</div>
+{{end}}{{if .PreviousCompanyAddress}}    <div class="error-banner" role="alert">{{tf "settings.instance.conflict" .PreviousCompanyAddress}}</div>
+{{end}}    <form class="settings-form" method="post" action="/settings/instance" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">{{t "settings.nav.instance"}}</h2>
+        <div class="settings-row single">
+          <div><h3>{{t "settings.email.base_url"}}</h3><p id="instance-address-help">{{t "settings.instance.address_help"}}</p></div>
+          <div class="field"><label class="visually-hidden" for="instance_address">{{t "settings.email.base_url"}}</label><input type="text" id="instance_address" name="instance_address" value="{{.Address}}" spellcheck="false" autocapitalize="off" aria-describedby="instance-address-help" placeholder="https://tkt.example.com"></div>
+        </div>
+      </section>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">{{t "settings.instance.save"}}</button>
+        <button class="btn" type="reset">{{t "settings.discard"}}</button>
+      </div>
+    </form>
+    <form class="settings-form" method="post" action="/settings/instance/language" data-settings-form>
+      <section class="settings-group">
+        <h2 class="settings-section-title">{{t "settings.language.title"}}</h2>
+        <div class="settings-row">
+          <div><h3>{{t "settings.language.label"}}</h3><p>{{t "settings.instance.language_help"}}</p></div>
+          <fieldset class="settings-segment">
+            <legend class="visually-hidden">{{t "settings.language.label"}}</legend>
+{{range .Languages}}            <label><input type="radio" name="interface_language" value="{{.Value}}"{{if eq $.CurrentLanguage .Value}} checked{{end}}>{{t .Label}}</label>
+{{end}}          </fieldset>
+        </div>
+      </section>
+      <div class="settings-savebar" data-settings-savebar hidden>
+        <button class="btn primary" type="submit">{{t "settings.language.save"}}</button>
+        <button class="btn" type="reset">{{t "settings.discard"}}</button>
+      </div>
+    </form>
+    <section class="settings-group">
+      <h2 class="settings-section-title">{{t "settings.instance.about"}}</h2>
+      <div class="settings-row">
+        <div><h3>{{t "settings.instance.version"}}</h3></div>
+        <div><p>{{.Version}}</p></div>
+      </div>
+    </section>
+  </div>
+</div>
+{{end}}

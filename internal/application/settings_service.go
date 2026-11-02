@@ -17,8 +17,8 @@ const DefaultInternalCommentBg = "#E8EEFF"
 const DefaultSLAWarningPercent = 80
 
 // Interface language settings (issue #335, S7): the interface language is an
-// INSTANCE setting, chosen by an administrator, so one choice applies to
-// every user of that instance. Both catalogues ship (internal/i18n) and
+// INSTANCE default, chosen by root, used unless a person selected their own
+// language in Preferences. Both catalogues ship (internal/i18n) and
 // English is the default, which keeps a default instance rendering exactly
 // the copy it rendered before the catalogue existed.
 const (
@@ -106,7 +106,8 @@ func isAllowedInternalCommentBg(color string) bool {
 // SettingsService implements the instance configuration use cases
 // (appearance-settings spec): read the current internal-comment background
 // and update it, and select the instance-wide interface language (issue
-// #335). Updates are admin/root-only via CapManageSettings — the
+// #335). Language updates are root-only (#496); other updates remain
+// admin/root-only via CapManageSettings — the
 // instance-configuration capability, deliberately separate from
 // CapManageUsers — and validated against the allowed set BEFORE the
 // store is reached, so a rejected value changes nothing.
@@ -133,14 +134,11 @@ func (s *SettingsService) GetInterfaceLanguage(ctx context.Context) (string, err
 	return s.settings.GetInterfaceLanguage(ctx)
 }
 
-// SetInterfaceLanguage selects the instance's interface language (issue
-// #335). The actor must hold CapManageSettings (admin/root) — the same
-// instance-configuration capability the appearance setting uses — and the
-// language must be one of AllowedInterfaceLanguages; anything else is a
-// ValidationError and the store is never touched (fail closed on invalid
-// input).
+// SetInterfaceLanguage selects the instance default language. Like the other
+// Instance settings it is root-only (#496); personal preferences are separate.
+// The shipped-language validation still runs before any store write.
 func (s *SettingsService) SetInterfaceLanguage(ctx context.Context, actor domain.User, language string) error {
-	if err := requireManageSettings(actor, "interface language settings are not permitted"); err != nil {
+	if err := requireManageInstance(actor); err != nil {
 		return err
 	}
 	if !isAllowedInterfaceLanguage(language) {

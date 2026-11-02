@@ -13,8 +13,9 @@ import (
 	"github.com/giulianotesta7/tkt/internal/i18n"
 )
 
-func TestPersonalLanguageIntegration(t *testing.T) {
+func TestInstancePersonalLanguageIntegration(t *testing.T) {
 	h := newHarness(t)
+	root, rootSession := seedRoot(t, h)
 	store := h.store.PreferencesStore().(application.LanguagePreferencesStore)
 	if wired, ok := any(h.mw).(interface {
 		WithLanguagePreferences(application.LanguagePreferencesStore) *SessionMiddleware
@@ -43,14 +44,14 @@ func TestPersonalLanguageIntegration(t *testing.T) {
 			}
 		})
 	}
-	if err := store.SetLanguage(t.Context(), h.admin.ID, "en"); err != nil {
+	if err := store.SetLanguage(t.Context(), root.ID, "en"); err != nil {
 		t.Fatal(err)
 	}
-	rec := h.postForm(t, "/settings/language", url.Values{"interface_language": {"es"}}, false)
+	rec := h.postFormAs(t, "/settings/instance/language", url.Values{"interface_language": {"es"}}, rootSession.ID)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("settings save: %d", rec.Code)
 	}
-	if body := h.get(t, "/settings/language", false).Body.String(); !strings.Contains(body, `<html lang="en">`) {
+	if body := getAs(t, h, "/settings/instance", rootSession.ID).Body.String(); !strings.Contains(body, `<html lang="en">`) {
 		t.Error("settings changed personal language")
 	}
 	rec = h.postForm(t, "/preferences/language", url.Values{"language": {"es"}}, false)

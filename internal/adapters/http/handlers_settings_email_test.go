@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -40,7 +41,6 @@ func emailSettingsForm(mod func(url.Values)) url.Values {
 		"email_password":     {"smtp-s3cret"},
 		"email_from_address": {"tkt@tkt.test"},
 		"email_from_name":    {"TKT"},
-		"email_base_url":     {"https://tkt.tkt.test"},
 	}
 	if mod != nil {
 		mod(form)
@@ -69,6 +69,7 @@ func assertNoWhitespaceViolations(t *testing.T, body string) {
 
 func TestSettingsEmailNoAuth(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, "https://tkt.tkt.test")
 	_, session := seedRoot(t, h)
 	check := func(want string) {
 		t.Helper()
@@ -142,8 +143,8 @@ func TestSettingsEmailSectionIsRootOnly(t *testing.T) {
 		"Stored encrypted and never shown again.",
 		`id="email_from_address" name="email_from_address" value=""`,
 		`id="email_from_name" name="email_from_name" value=""`,
-		`id="email_base_url" name="email_base_url" value=""`, // S10
-		"https://tkt.example.com",                            // S10: the shape the field asks for
+		`id="email_base_url" class="settings-readonly" value=""`,
+		`href="/settings/instance"`,
 		"Sends one email to root@tkt.test",
 		"Save email notifications",
 		"Send test email",
@@ -214,10 +215,39 @@ func TestSettingsEmailRoutesRejectEveryoneButRoot(t *testing.T) {
 	}
 }
 
+func TestSettingsEmailRejectsLegacyAddress(t *testing.T) {
+	h := newHarness(t)
+	seedInstanceAddress(t, h, "https://tkt.tkt.test")
+	_, session := seedRoot(t, h)
+	wantRedirect(t, h.postFormAs(t, "/settings/email", emailSettingsForm(nil), session.ID), http.StatusSeeOther, "/settings/email")
+	before, err := h.store.EmailSettingsStore().GetEmailSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, address := range []string{"", "https://other.example.com"} {
+		form := emailSettingsForm(func(f url.Values) {
+			f.Set("email_base_url", address)
+			f.Set("email_host", "changed.example.com")
+		})
+		rec := h.postFormAs(t, "/settings/email", form, session.ID)
+		if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Change the TKT address in Instance settings.") || !strings.Contains(rec.Body.String(), `role="alert"`) {
+			t.Errorf("legacy address %q: status %d, missing visible error", address, rec.Code)
+		}
+		after, err := h.store.EmailSettingsStore().GetEmailSettings(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(after, before) {
+			t.Errorf("legacy address changed persisted email settings")
+		}
+	}
+}
+
 // TestSettingsEmailSavePersistsAndRedirects proves a valid submission is
 // stored whole, sealed, and rendered back without the password (S1-S4, S8).
 func TestSettingsEmailSavePersistsAndRedirects(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, "https://tkt.tkt.test")
 	root, rootSession := seedRoot(t, h)
 
 	rec := h.postFormAs(t, "/settings/email", emailSettingsForm(func(f url.Values) {
@@ -269,7 +299,7 @@ func TestSettingsEmailSavePersistsAndRedirects(t *testing.T) {
 		`id="email_username" name="email_username" value="tkt-smtp"`,
 		`id="email_from_address" name="email_from_address" value="tkt@tkt.test"`,
 		`id="email_from_name" name="email_from_name" value="TKT"`,
-		`id="email_base_url" name="email_base_url" value="https://tkt.tkt.test"`,
+		`id="email_base_url" class="settings-readonly" value="https://tkt.tkt.test"`,
 		"A password is saved; leave empty to keep it.",
 	} {
 		if !strings.Contains(body, want) {
@@ -296,13 +326,13 @@ func TestSettingsEmailRejectedSaveWritesNothing(t *testing.T) {
 		want   string
 	}{
 		{"missing host", func(f url.Values) { f.Del("email_host") }, "enter the SMTP server to turn email on"},
-		{"missing TKT address", func(f url.Values) { f.Del("email_base_url") }, "enter the TKT address to turn email on"},
 		{"credentials without encryption", func(f url.Values) { f.Set("email_encryption", "none") }, "a username and password need STARTTLS or TLS"},
 		{"unreadable port", func(f url.Values) { f.Set("email_port", "not-a-port") }, "the port must be a number from 1 to 65535"},
 		{"explicit port zero", func(f url.Values) { f.Set("email_port", "0") }, "the port must be a number from 1 to 65535"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
+			seedInstanceAddress(t, h, "https://tkt.tkt.test")
 			_, rootSession := seedRoot(t, h)
 
 			rec := h.postFormAs(t, "/settings/email", emailSettingsForm(tc.modify), rootSession.ID)
@@ -345,6 +375,7 @@ func TestSettingsEmailRejectedSaveWritesNothing(t *testing.T) {
 // unsealed.
 func TestSettingsEmailKeepsTheStoredPasswordOnAnEmptyField(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, "https://tkt.tkt.test")
 	_, rootSession := seedRoot(t, h)
 
 	if rec := h.postFormAs(t, "/settings/email", emailSettingsForm(nil), rootSession.ID); rec.Code != http.StatusSeeOther {
@@ -381,6 +412,7 @@ func TestSettingsEmailKeepsTheStoredPasswordOnAnEmptyField(t *testing.T) {
 // relay (S2) is saved without credentials.
 func TestSettingsEmailRemovingTheUsernameRemovesTheCredentials(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, "https://tkt.tkt.test")
 	_, rootSession := seedRoot(t, h)
 
 	if rec := h.postFormAs(t, "/settings/email", emailSettingsForm(nil), rootSession.ID); rec.Code != http.StatusSeeOther {
@@ -409,6 +441,7 @@ func TestSettingsEmailRemovingTheUsernameRemovesTheCredentials(t *testing.T) {
 // one message to the acting root and reports success on the page (S14).
 func TestSettingsEmailTestSendsToTheRootsOwnAddress(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, "https://tkt.tkt.test")
 	root, rootSession := seedRoot(t, h)
 
 	if rec := h.postFormAs(t, "/settings/email", emailSettingsForm(nil), rootSession.ID); rec.Code != http.StatusSeeOther {
@@ -445,6 +478,7 @@ func TestSettingsEmailTestSendsToTheRootsOwnAddress(t *testing.T) {
 // SMTP reply (S14) without leaking the password.
 func TestSettingsEmailTestReportsTheServerReply(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, "https://tkt.tkt.test")
 	_, rootSession := seedRoot(t, h)
 	h.mailer.err = errors.New("550 5.7.1 relay access denied")
 
@@ -498,7 +532,6 @@ func TestSettingsEmailSectionDisabledSaveIsAllowed(t *testing.T) {
 		"email_port":            {""},
 		"email_encryption":      {"none"},
 		"email_from_address":    {""},
-		"email_base_url":        {""},
 		"email_from_name":       {""},
 		"email_username":        {""},
 		"email_password":        {""},
@@ -526,6 +559,7 @@ func TestSettingsEmailSectionDisabledSaveIsAllowed(t *testing.T) {
 // #335 applies to every surface).
 func TestSettingsEmailErrorsFollowTheInstanceLanguage(t *testing.T) {
 	h := newHarness(t)
+	seedInstanceAddress(t, h, "https://tkt.tkt.test")
 	root, rootSession := seedRoot(t, h)
 	if err := h.settings.SetInterfaceLanguage(t.Context(), *root, application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)

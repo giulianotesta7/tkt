@@ -47,7 +47,8 @@ Sign in as root.
 
 1. **Settings → Organization**: the name in the interface header, the help desk name and the
    support address.
-2. **Settings → Language**: one interface language for the whole instance, applied immediately.
+2. **Settings → Instance** (root only): the public **TKT address**, the default interface language,
+   and the read-only tkt version. Personal language choices stay in **Preferences**.
 3. **Catalog**: a department groups desks, a desk groups categories and their agents, and a
    category groups requests that follow one workflow. Create a department, a desk and a category,
    open the category's workflow, add a step and publish it.
@@ -56,8 +57,9 @@ Sign in as root.
 5. **Settings → Security**: the minimum password length and the two self-service switches (change
    from Preferences, recovery on the sign-in page); recovery needs email notifications.
    [Administration](administration.md#security) covers the rules.
-6. **Settings → Email notifications** (root only, optional): an SMTP server, a sender address and
-   the **TKT address**; [Deployment](deployment.md#the-public-base-url) explains the address.
+6. **Settings → Email notifications** (root only, optional): an SMTP server and a sender address.
+   The **TKT address** is read from Instance; [Deployment](deployment.md#the-public-base-url)
+   explains the address.
 
 Verify by opening **New ticket**: the published category is in the picker.
 

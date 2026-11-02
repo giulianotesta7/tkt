@@ -651,7 +651,7 @@ func TestSpanishMetricsCharts(t *testing.T) {
 // the English literals (S8).
 func TestSpanishWorkflowChecklist(t *testing.T) {
 	h := newHarness(t)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 	cat, err := h.categories.Create(t.Context(), "Lista")
@@ -694,7 +694,7 @@ func TestSpanishWorkflowChecklist(t *testing.T) {
 // instance never answers an English sentence (S8).
 func TestSpanishBadIdentifierErrors(t *testing.T) {
 	h := newHarness(t)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 	for _, tc := range []struct {
@@ -739,7 +739,7 @@ func TestSpanishKeylessErrorsAndLiteralsFollowTheInstanceLanguage(t *testing.T) 
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
-			if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, tc.language); err != nil {
+			if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), tc.language); err != nil {
 				t.Fatalf("set interface language: %v", err)
 			}
 			source, err := h.categories.Create(t.Context(), "Clone source")
@@ -820,7 +820,7 @@ func TestSpanishSLADetailAndDegradeLabels(t *testing.T) {
 // though the desks themselves are admin-authored content (S11).
 func TestSpanishCatalogStructureSyntheticGroup(t *testing.T) {
 	h := newHarness(t)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 	legacy, err := h.desks.CreateWithDescription(t.Context(), *h.admin, "Legacy desk", "Legacy description")

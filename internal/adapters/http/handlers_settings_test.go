@@ -94,6 +94,7 @@ func TestSettingsIndexRedirectsToTheFirstSection(t *testing.T) {
 // administrator opened.
 func TestSettingsSectionsRenderOneSectionEach(t *testing.T) {
 	h := newHarness(t)
+	_, root := seedRoot(t, h)
 
 	cases := []struct {
 		path   string
@@ -115,10 +116,10 @@ func TestSettingsSectionsRenderOneSectionEach(t *testing.T) {
 			absent: []string{`action="/settings/language"`, `action="/settings/sla"`, `name="internal_comment_bg"`, `action="/settings/calendar"`},
 		},
 		{
-			path:  "/settings/language",
+			path:  "/settings/instance",
 			title: "<h2 class=\"settings-section-title\">Interface language</h2>",
 			own: []string{
-				`action="/settings/language"`,
+				`action="/settings/instance/language"`,
 				`<input type="radio" name="interface_language" value="en" checked>English`,
 				`Save language`,
 			},
@@ -159,7 +160,7 @@ func TestSettingsSectionsRenderOneSectionEach(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
-			body := sectionGet(t, h, tc.path)
+			body := sectionBodyFor(t, h, tc.path, root.ID)
 			if !strings.Contains(body, tc.title) {
 				t.Errorf("GET %s must render %q, got: %s", tc.path, tc.title, body)
 			}
@@ -202,7 +203,7 @@ func TestSettingsSectionsRequireTheirCapability(t *testing.T) {
 	admin := seedUserRole(t, h.store, "Section Admin", "section-admin@tkt.test", domain.RoleAdmin)
 	session := seedSession(t, h.store, admin.ID)
 
-	for _, section := range []string{"organization", "language", "tickets", "calendar"} {
+	for _, section := range []string{"organization", "tickets", "calendar"} {
 		if rec := getAs(t, h, "/settings/"+section, session.ID); rec.Code != http.StatusOK {
 			t.Errorf("admin GET /settings/%s = %d, want 200", section, rec.Code)
 		}
@@ -231,7 +232,7 @@ func TestSettingsNavMarksTheActiveSectionAndHidesEmail(t *testing.T) {
 	for _, want := range []string{
 		`<nav class="settings-nav" aria-label="Settings sections">`,
 		`href="/settings/organization">Organization</a>`,
-		`href="/settings/language">Language</a>`,
+		`href="/settings/instance">Instance</a>`,
 		`href="/settings/tickets">Tickets &amp; SLA</a>`,
 		`href="/settings/calendar" aria-current="page">Working calendar</a>`,
 		`href="/settings/email">Email notifications</a>`,
@@ -278,18 +279,19 @@ func TestSettingsPagesLoadTheirOwnAssets(t *testing.T) {
 // section it saves, with a discard control beside it.
 func TestSettingsSaveBarNamesItsSection(t *testing.T) {
 	h := newHarness(t)
+	_, root := seedRoot(t, h)
 
 	cases := []struct {
 		path  string
 		label string
 	}{
 		{"/settings/organization", "Save organization"},
-		{"/settings/language", "Save language"},
+		{"/settings/instance", "Save language"},
 		{"/settings/tickets", "Save SLA settings"},
 		{"/settings/calendar", "Save working calendar"},
 	}
 	for _, tc := range cases {
-		body := sectionGet(t, h, tc.path)
+		body := sectionBodyFor(t, h, tc.path, root.ID)
 		if got := strings.Count(body, `class="settings-savebar" data-settings-savebar hidden`); got == 0 {
 			t.Errorf("GET %s must render a hidden save bar, got: %s", tc.path, body)
 		}
@@ -317,7 +319,7 @@ func TestSettingsSaveBarNamesItsSection(t *testing.T) {
 func TestSettingsDroppedCopyIsGone(t *testing.T) {
 	h := newHarness(t)
 
-	for _, path := range []string{"/settings/organization", "/settings/language", "/settings/tickets", "/settings/calendar"} {
+	for _, path := range []string{"/settings/organization", "/settings/tickets", "/settings/calendar"} {
 		body := sectionGet(t, h, path)
 		if !strings.Contains(body, "Instance configuration") {
 			t.Errorf("GET %s must carry the design's subtitle %q", path, "Instance configuration")
@@ -958,10 +960,11 @@ func TestSettingsCalendarRejectsUnparsableClock(t *testing.T) {
 // with the stored language marked and no descriptive paragraph.
 func TestSettingsLanguageSectionShowsTheStoredLanguage(t *testing.T) {
 	h := newHarness(t)
+	_, session := seedRoot(t, h)
 
-	body := sectionGet(t, h, "/settings/language")
+	body := sectionBodyFor(t, h, "/settings/instance", session.ID)
 	for _, want := range []string{
-		`action="/settings/language"`,
+		`action="/settings/instance/language"`,
 		`<h2 class="settings-section-title">Interface language</h2>`,
 		`<legend class="visually-hidden">Language</legend>`,
 		`<input type="radio" name="interface_language" value="en" checked>English`,
@@ -981,16 +984,17 @@ func TestSettingsLanguageSectionShowsTheStoredLanguage(t *testing.T) {
 // of the save: the code reaches the store exactly as submitted (S9), and the
 // page the administrator lands on renders in that language (S8) — a new request,
 // so the whole shell follows the instance setting, not just the panel.
-func TestSettingsUpdateLanguagePersistsAndRendersTheNewLanguage(t *testing.T) {
+func TestSettingsLanguagePersistsAndRendersTheNewLanguage(t *testing.T) {
 	h := newHarness(t)
+	_, session := seedRoot(t, h)
 
-	rec := h.postForm(t, "/settings/language", url.Values{"interface_language": {"es"}}, false)
-	wantRedirect(t, rec, http.StatusSeeOther, "/settings/language")
+	rec := h.postFormAs(t, "/settings/instance/language", url.Values{"interface_language": {"es"}}, session.ID)
+	wantRedirect(t, rec, http.StatusSeeOther, "/settings/instance")
 
 	// The save toast the redirect carries must already read the language just
 	// saved: the page that renders it is Spanish, and S8 allows no leftover
 	// string in the previous language.
-	feedback := h.getWithSaveFeedback(t, "/settings/language", rec)
+	feedback := h.getWithSaveFeedback(t, "/tickets", rec)
 	if !strings.Contains(feedback, `data-feedback-message="Guardado"`) {
 		t.Errorf("the save toast must read the saved language, got: %.400s", feedback)
 	}
@@ -1006,7 +1010,7 @@ func TestSettingsUpdateLanguagePersistsAndRendersTheNewLanguage(t *testing.T) {
 		t.Fatalf("stored language = %q, want %q", got, application.InterfaceLanguageSpanish)
 	}
 
-	body := sectionGet(t, h, "/settings/language")
+	body := sectionBodyFor(t, h, "/settings/instance", session.ID)
 	for _, want := range []string{
 		`<html lang="es">`,
 		`<h1 class="command-title">Configuración</h1>`,
@@ -1029,10 +1033,11 @@ func TestSettingsUpdateLanguagePersistsAndRendersTheNewLanguage(t *testing.T) {
 // TestSettingsUpdateLanguageRejectsUnshippedCode proves a refused code is a 422
 // that writes nothing, emits no save feedback, and reports the rejection in the
 // language the instance is currently rendering — English here.
-func TestSettingsUpdateLanguageRejectsUnshippedCode(t *testing.T) {
+func TestSettingsLanguageRejectsUnshippedCode(t *testing.T) {
 	h := newHarness(t)
+	_, session := seedRoot(t, h)
 
-	rec := h.postForm(t, "/settings/language", url.Values{"interface_language": {"fr"}}, false)
+	rec := h.postFormAs(t, "/settings/instance/language", url.Values{"interface_language": {"fr"}}, session.ID)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
 	}
@@ -1062,13 +1067,14 @@ func TestSettingsUpdateLanguageRejectsUnshippedCode(t *testing.T) {
 // TestSettingsUpdateLanguageRejectionSpeaksTheCurrentLanguage proves the
 // validation error follows the instance language too (S8): on a Spanish
 // instance the refusal reads Spanish, and the stored value is untouched.
-func TestSettingsUpdateLanguageRejectionSpeaksTheCurrentLanguage(t *testing.T) {
+func TestSettingsLanguageRejectionSpeaksTheCurrentLanguage(t *testing.T) {
 	h := newHarness(t)
+	_, session := seedRoot(t, h)
 	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("seed Spanish instance: %v", err)
 	}
 
-	rec := h.postForm(t, "/settings/language", url.Values{"interface_language": {"en-US"}}, false)
+	rec := h.postFormAs(t, "/settings/instance/language", url.Values{"interface_language": {"en-US"}}, session.ID)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
 	}
@@ -1095,21 +1101,21 @@ func TestSettingsUpdateLanguageRejectionSpeaksTheCurrentLanguage(t *testing.T) {
 // TestSettingsUpdateLanguageDeniedForNonAdmin proves the new POST is gated on
 // CapManageSettings like every other settings route: a user and an agent are
 // refused server-side, emit no save feedback, and change nothing.
-func TestSettingsUpdateLanguageDeniedForNonAdmin(t *testing.T) {
-	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent} {
+func TestSettingsLanguageDeniedForNonRoot(t *testing.T) {
+	for _, role := range []domain.Role{domain.RoleUser, domain.RoleAgent, domain.RoleAdmin} {
 		t.Run(string(role), func(t *testing.T) {
 			h := newHarness(t)
 			actor := seedUserRole(t, h.store, string(role), string(role)+"-language@tkt.test", role)
 			session := seedSession(t, h.store, actor.ID)
 
-			req := httptest.NewRequest(http.MethodPost, "/settings/language", strings.NewReader(url.Values{"interface_language": {"es"}}.Encode()))
+			req := httptest.NewRequest(http.MethodPost, "/settings/instance/language", strings.NewReader(url.Values{"interface_language": {"es"}}.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			req.Header.Set("Cookie", sessionCookie+"="+session.ID)
 			rec := httptest.NewRecorder()
 			h.mw.Wrap(h.mux).ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusForbidden {
-				t.Errorf("POST /settings/language as %s = %d, want 403", role, rec.Code)
+				t.Errorf("POST /settings/instance/language as %s = %d, want 403", role, rec.Code)
 			}
 			if got := rec.Header().Get("X-Save-Feedback"); got != "" {
 				t.Errorf("denied update must not emit save feedback, got %q", got)

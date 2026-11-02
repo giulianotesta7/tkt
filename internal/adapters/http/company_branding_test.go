@@ -55,7 +55,6 @@ func TestSettingsSecurityFieldHelpIsVisible(t *testing.T) {
 		"Preferences gets a Password section.",
 		"Sends a single-use link that expires in 1 hour.",
 		"Between 8 and 64 characters. Applies to every new password",
-		"The public address of this instance, such as",
 		"Stored encrypted and never shown again. Leave it blank to keep the saved secret.",
 		"Separate domains with a semicolon (;).",
 		"Built from the TKT address above. Paste it into the Google Cloud console",
@@ -65,6 +64,14 @@ func TestSettingsSecurityFieldHelpIsVisible(t *testing.T) {
 		if !regexp.MustCompile(`<p( class="help")?>` + regexp.QuoteMeta(help)).MatchString(body) {
 			t.Errorf("the Security section must render %q as visible text", help)
 		}
+	}
+	// The address is now configured in Instance; keep visible guidance here
+	// rather than requiring obsolete editing help beside a read-only value.
+	if !strings.Contains(body, `<p><a href="/settings/instance">Configure in Instance</a></p>`) {
+		t.Error("the Security section must visibly link root to the address configuration")
+	}
+	if !strings.Contains(body, `id="company_signin_address" class="settings-readonly" value="" readonly`) || strings.Contains(body, `name="company_signin_address"`) {
+		t.Error("the company address must remain read-only")
 	}
 	for _, gone := range []string{"Company Google accounts only", "Your organization only", `id="help-tip-google-signin"`, `id="help-tip-microsoft-signin"`} {
 		if strings.Contains(body, gone) {

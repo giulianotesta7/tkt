@@ -468,14 +468,21 @@ test.describe("Password recovery", () => {
     const refused = await page.request.get(base() + "/login/forgot");
     expect(refused.status()).toBe(404);
 
-    // Configure email delivery as root.
+    // Configure the shared address in Instance, then email delivery as root.
     await loginAsSeeded(page);
+    await page.goto(base() + "/settings/instance");
+    await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
+    await page.getByRole("button", { name: "Save TKT address", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/instance$/);
     await page.goto(base() + "/settings/email");
     await page.getByLabel("SMTP server", { exact: true }).fill("127.0.0.1");
     await page.getByLabel("Port", { exact: true }).fill("1");
     await page.locator(".settings-segment label").filter({ hasText: "None" }).click();
     await page.getByLabel("Sender address", { exact: true }).fill("tkt@example.com");
-    await page.getByLabel("TKT address", { exact: true }).fill("https://tkt.example.com");
+    await expect(page.getByLabel("TKT address", { exact: true })).toHaveValue(
+      "https://tkt.example.com",
+    );
+    await expect(page.getByLabel("TKT address", { exact: true })).toHaveAttribute("readonly", "");
     await page.getByRole("checkbox", { name: "Turn on email notifications" }).check();
     await page.getByRole("button", { name: "Save email notifications" }).click();
     await expect(page.locator("#save-feedback")).toContainText("Saved");

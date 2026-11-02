@@ -337,7 +337,7 @@ func TestTicketHoldConflictMapsTo409(t *testing.T) {
 		t.Errorf("the typed reason must survive the 409 re-render, got: %s", body)
 	}
 
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 	es := postHoldConflict(t, h, mux, tkt.ID, "esperando los registros")
@@ -662,7 +662,7 @@ func mustTicket(t *testing.T, h *harness, id int64) *domain.Ticket {
 // verbatim.
 func TestTicketHoldSurfaceInSpanish(t *testing.T) {
 	h := newHarness(t)
-	if err := h.settings.SetInterfaceLanguage(t.Context(), *h.admin, application.InterfaceLanguageSpanish); err != nil {
+	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
 	requester := seedUserRole(t, h.store, "Rosa", "rosa-es@tkt.test", domain.RoleUser)
