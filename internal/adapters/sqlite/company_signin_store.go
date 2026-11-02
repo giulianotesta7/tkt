@@ -11,7 +11,6 @@ import (
 // migration seeds them: an absent row reads back the documented default, so a
 // fresh instance offers password sign-in only.
 const (
-	settingsKeyCompanySignInAddress     = "company_signin_address"
 	settingsKeyCompanySignInNewAccounts = "company_signin_new_accounts"
 	settingsKeyPasswordSignInEnabled    = "password_signin_enabled"
 	settingsKeyGoogleSignInEnabled      = "google_signin_enabled"
@@ -25,7 +24,7 @@ const (
 )
 
 var companySignInKeys = []string{
-	settingsKeyCompanySignInAddress, settingsKeyCompanySignInNewAccounts, settingsKeyPasswordSignInEnabled,
+	settingsKeyInstanceAddress, settingsKeyCompanySignInNewAccounts, settingsKeyPasswordSignInEnabled,
 	settingsKeyGoogleSignInEnabled, settingsKeyGoogleSignInClientID, settingsKeyGoogleSignInSecret, settingsKeyGoogleSignInDomains,
 	settingsKeyMicrosoftSignInEnabled, settingsKeyMicrosoftSignInTenantID, settingsKeyMicrosoftSignInClientID, settingsKeyMicrosoftSignInSecret,
 }
@@ -53,7 +52,7 @@ func (ss *settingsStore) GetCompanySignIn(ctx context.Context) (application.Comp
 		}
 	}
 	return application.CompanySignInSettings{
-		Address:               v[settingsKeyCompanySignInAddress],
+		Address:               v[settingsKeyInstanceAddress],
 		NewAccounts:           newAccounts,
 		PasswordSignInEnabled: v[settingsKeyPasswordSignInEnabled] != "0",
 		Google: application.GoogleSignIn{
@@ -78,9 +77,11 @@ func (ss *settingsStore) SetCompanySignIn(ctx context.Context, c application.Com
 		return err
 	}
 	defer tx.Rollback()
+	if err := checkInstanceAddressTx(ctx, tx, c.Google.Enabled || c.Microsoft.Enabled); err != nil {
+		return err
+	}
 
 	for _, row := range []struct{ key, value string }{
-		{settingsKeyCompanySignInAddress, c.Address},
 		{settingsKeyCompanySignInNewAccounts, string(c.NewAccounts)},
 		{settingsKeyPasswordSignInEnabled, formatSettingBool(c.PasswordSignInEnabled)},
 		{settingsKeyGoogleSignInEnabled, formatSettingBool(c.Google.Enabled)},
