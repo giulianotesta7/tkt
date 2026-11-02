@@ -119,16 +119,23 @@
       </div>
     </section>
     <section class="settings-group">
-      <h2 class="settings-section-title">Service users</h2>
-      <form class="settings-row" method="post" action="/settings/api/service-users">
+      <div class="api-service-heading"><div><h2 class="settings-section-title">Service users</h2><p>A service user is the identity an API key acts as. It never signs in, is never notified and is never assigned work.</p></div>
+      <details class="api-create-user"><summary class="btn primary">Create service user</summary>
+      <form class="api-create-user-form" method="post" action="/settings/api/service-users">
         <div><h3>New service user</h3><p>A service user is the identity an API key acts as. It never signs in, is never notified and is never assigned work.</p></div>
         <div class="settings-pair">
           <div class="field"><label for="service_user_name">Name</label><input type="text" id="service_user_name" name="name" required></div>
           <div class="field"><label for="service_user_role">Role</label><select id="service_user_role" name="role"><option value="user">User</option><option value="agent">Agent</option></select></div>
           <div><button class="btn primary" type="submit">Create service user</button></div>
         </div>
-      </form>
-      <article class="api-service-user" aria-labelledby="api-service-user-7">
+      </form></details></div>
+      <div class="api-service-users-grid">
+        <div class="api-service-user-list" aria-label="Service users">
+          <a class="api-service-choice" href="/settings/api?service_user=7" aria-current="true"><strong>Triage bot</strong><small>Agent · Active · 2 keys</small></a>
+          <a class="api-service-choice" href="/settings/api?service_user=8"><strong>Monitoring</strong><small>User · Deactivated · 0 keys</small></a>
+        </div>
+        <div class="api-service-inspector">
+      <article class="api-service-user" id="api-inspector-7" aria-labelledby="api-service-user-7">
         <header class="api-service-user-head">
           <div><h3 id="api-service-user-7">Triage bot</h3><p>Agent · Active</p></div>
           <form method="post" action="/settings/api/service-users/7/active">
@@ -136,28 +143,22 @@
             <button class="btn danger small" type="submit">Deactivate Triage bot</button>
           </form>
         </header>
-        <div class="api-keys-wrap"><table class="api-keys-table">
-          <thead><tr><th scope="col">Key</th><th scope="col">Scopes</th><th scope="col">Status</th><th scope="col">Expires</th><th scope="col">Last used</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
-          <tbody>
-            <tr>
-              <td><strong>Zabbix</strong><small>tkt_0123456789ab_…</small></td>
-              <td><code>tickets:read</code>, <code>comments:internal</code></td>
-              <td>Active</td>
-              <td>2027-01-01</td>
-              <td>Not used yet</td>
-              <td><form method="post" action="/settings/api/keys/2/revoke"><button class="btn danger small" type="submit">Revoke Zabbix</button></form></td>
-            </tr>
-            <tr>
-              <td><strong>Old</strong><small>tkt_ba9876543210_…</small></td>
-              <td><code>tickets:read</code></td>
-              <td>Revoked</td>
-              <td>Never</td>
-              <td>Oct 3, 10:00</td>
-              <td></td>
-            </tr>
-          </tbody>
-        </table></div>
-        <form class="api-key-form" method="post" action="/settings/api/keys">
+        <div class="api-keys-wrap"><ul class="api-key-list">
+          <li class="api-key-record">
+            <h4 class="api-key-name">Zabbix</h4>
+            <p><code>tkt_0123456789ab_…</code> · Active</p>
+            <p>Scopes: <code>tickets:read</code>, <code>comments:internal</code></p>
+            <p>Expires: 2027-01-01 · Last used: Not used yet</p>
+            <form method="post" action="/settings/api/keys/2/revoke"><button class="btn danger small" type="submit">Revoke Zabbix</button></form>
+          </li>
+          <li class="api-key-record">
+            <h4 class="api-key-name">Old</h4>
+            <p><code>tkt_ba9876543210_…</code> · Revoked</p>
+            <p>Scopes: <code>tickets:read</code></p>
+            <p>Expires: Never · Last used: Oct 3, 10:00</p>
+          </li>
+        </ul></div>
+        <details class="api-create-key"><summary>Create key for Triage bot</summary><form class="api-key-form" method="post" action="/settings/api/keys">
           <input type="hidden" name="service_user_id" value="7">
           <div class="field"><label for="api_key_name_7">Key name</label><input type="text" id="api_key_name_7" name="name" required></div>
           <div class="field"><label for="api_key_expires_7">Expires on</label><input type="date" id="api_key_expires_7" name="expires_on"><p class="help">Optional. The key stops working at the start of that day (UTC).</p></div>
@@ -172,9 +173,9 @@
             <p class="help" id="api-all-help-7">A leaked key with this scope can change every ticket.</p>
           </fieldset>
           <div class="api-key-submit"><button class="btn primary" type="submit">Create key for Triage bot</button></div>
-        </form>
+        </form></details>
       </article>
-      <article class="api-service-user" aria-labelledby="api-service-user-8">
+      <article class="api-service-user" id="api-inspector-8" aria-labelledby="api-service-user-8" hidden>
         <header class="api-service-user-head">
           <div><h3 id="api-service-user-8">Monitoring</h3><p>User · Deactivated</p></div>
           <form method="post" action="/settings/api/service-users/8/active">
@@ -184,6 +185,8 @@
         </header>
         <p class="api-empty">No keys yet.</p>
       </article>
+        </div>
+      </div>
     </section>
   </div>
 </div>

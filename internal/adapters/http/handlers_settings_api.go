@@ -65,6 +65,13 @@ type settingsAPIData struct {
 	// NewToken is the token of the key this response created, shown once.
 	NewToken    string
 	NewTokenFor string
+	SelectedID int64
+	CreateUserError bool
+	KeyError bool
+	DraftName string
+	DraftRole string
+	DraftExpiry string
+	DraftScopes map[domain.APIKeyScope]bool
 }
 
 type apiServiceUserRow struct {
@@ -126,7 +133,26 @@ func (h *SettingsHandlers) renderAPI(w http.ResponseWriter, r *http.Request, sta
 		ScopeOptions:        apiScopeOptions,
 	}
 	data.Error = message
+	data.SelectedID, _ = strconv.ParseInt(r.URL.Query().Get("service_user"), 10, 64)
+	if r.Method == http.MethodPost && r.URL.Path == "/settings/api/keys" {
+		data.SelectedID, _ = strconv.ParseInt(r.PostFormValue("service_user_id"), 10, 64)
+	}
+	if r.Method == http.MethodPost && message != "" {
+		switch r.URL.Path {
+		case "/settings/api/service-users":
+			data.CreateUserError = true
+			data.DraftName, data.DraftRole = r.PostFormValue("name"), r.PostFormValue("role")
+		case "/settings/api/keys":
+			data.KeyError = true
+			data.SelectedID, _ = strconv.ParseInt(r.PostFormValue("service_user_id"), 10, 64)
+			data.DraftName, data.DraftExpiry = r.PostFormValue("name"), r.PostFormValue("expires_on")
+			data.DraftScopes = make(map[domain.APIKeyScope]bool)
+			for _, scope := range r.PostForm["scopes"] { data.DraftScopes[domain.APIKeyScope(scope)] = true }
+		}
+	}
+	found := false
 	for _, v := range views {
+		if v.User.ID == data.SelectedID { found = true }
 		row := apiServiceUserRow{
 			ID: v.User.ID, Name: v.User.Name, RoleLabel: userRoleLabel(v.User.Role), Active: v.User.Active,
 			CreatedOn: apiDate(v.User.CreatedAt), CanInternal: v.User.Role.AtLeast(domain.RoleAgent),
@@ -155,6 +181,7 @@ func (h *SettingsHandlers) renderAPI(w http.ResponseWriter, r *http.Request, sta
 		}
 		data.ServiceUsers = append(data.ServiceUsers, row)
 	}
+	if !found && len(data.ServiceUsers) > 0 { data.SelectedID = data.ServiceUsers[0].ID }
 	h.renderer.Render(w, r, "settings_api", "", data, status)
 }
 
@@ -172,6 +199,11 @@ func (h *SettingsHandlers) apiMutationFailed(w http.ResponseWriter, r *http.Requ
 func (h *SettingsHandlers) apiSaved(w http.ResponseWriter, r *http.Request) {
 	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
 	redirect(w, r, settingsSectionHref(settingsSectionAPI))
+}
+
+func (h *SettingsHandlers) apiSavedFor(w http.ResponseWriter, r *http.Request, id int64) {
+	saveFeedback(w, r, saveFeedbackSaved, saveFeedbackSuccess)
+	redirect(w, r, settingsSectionHref(settingsSectionAPI)+"?service_user="+strconv.FormatInt(id, 10))
 }
 
 // formSwitch reads a 0/1 switch field submitted exactly once. Any other value,
@@ -256,7 +288,7 @@ func (h *SettingsHandlers) setServiceUserActive(w http.ResponseWriter, r *http.R
 		h.apiMutationFailed(w, r, err)
 		return
 	}
-	h.apiSaved(w, r)
+	h.apiSavedFor(w, r, id)
 }
 
 // createAPIKey answers 200 with the section and the new token instead of a
@@ -302,9 +334,27 @@ func (h *SettingsHandlers) revokeAPIKey(w http.ResponseWriter, r *http.Request) 
 		http.NotFound(w, r)
 		return
 	}
-	if err := h.apiAccess.RevokeAPIKey(r.Context(), *userFromContext(r.Context()), id); err != nil {
+	actor := *userFromContext(r.Context())
+	views, err := h.apiAccess.ListServiceUsers(r.Context(), actor)
+	if err != nil {
 		h.apiMutationFailed(w, r, err)
 		return
 	}
-	h.apiSaved(w, r)
+	var owner int64
+	for _, view := range views {
+		for _, key := range view.Keys {
+			if key.ID == id {
+				owner = view.User.ID
+			}
+		}
+	}
+	if err := h.apiAccess.RevokeAPIKey(r.Context(), actor, id); err != nil {
+		h.apiMutationFailed(w, r, err)
+		return
+	}
+	if owner != 0 {
+		h.apiSavedFor(w, r, owner)
+	} else {
+		h.apiSaved(w, r)
+	}
 }

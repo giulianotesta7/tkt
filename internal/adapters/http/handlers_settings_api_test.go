@@ -108,6 +108,59 @@ func TestSettingsAPISectionGating(t *testing.T) {
 	}
 }
 
+func TestSettingsAPICompactInspector(t *testing.T) {
+	f := newAPIFixture(t)
+	page := f.h.get(t, "/settings/api", false).Body.String()
+	for _, want := range []string{`class="api-service-users-grid"`, `class="api-service-user-list"`, `class="api-service-inspector"`, `<details class="api-create-user"`, `<details class="api-create-key"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("API section must contain %q", want)
+		}
+	}
+}
+
+func TestSettingsAPIInspectorRecovery(t *testing.T) {
+	h := newHarness(t)
+	admin := h.adminSession.ID
+	wantRedirect(t, h.postFormAs(t, "/settings/api/service-users", url.Values{"name": {"First"}, "role": {"user"}}, admin), http.StatusSeeOther, "/settings/api")
+	wantRedirect(t, h.postFormAs(t, "/settings/api/service-users", url.Values{"name": {"Second"}, "role": {"agent"}}, admin), http.StatusSeeOther, "/settings/api")
+	users, err := h.store.APIAccessStore().ListServiceUsers(t.Context())
+	if err != nil || len(users) != 2 { t.Fatalf("users: %v %v", users, err) }
+	id := itoa(users[1].ID)
+	page := h.get(t, "/settings/api?service_user="+id, false).Body.String()
+	for _, want := range []string{`aria-current="true"`, `0 keys`} { if !strings.Contains(page, want) { t.Errorf("missing %q", want) } }
+	rec := h.postFormAs(t, "/settings/api/keys", url.Values{"service_user_id": {id}, "name": {"Draft key"}, "expires_on": {"2099-01-01"}}, admin)
+	if rec.Code != http.StatusUnprocessableEntity { t.Fatalf("status %d", rec.Code) }
+	for _, want := range []string{`value="Draft key"`, `value="2099-01-01"`, `<details class="api-create-key" open`, `aria-current="true"`} { if !strings.Contains(rec.Body.String(), want) { t.Errorf("rejected form missing %q", want) } }
+	keys, err := h.store.APIAccessStore().ListAPIKeys(t.Context()); if err != nil || len(keys) != 0 { t.Errorf("rejected form stored keys: %v %v", keys, err) }
+}
+
+func TestSettingsAPISelectionAfterMutations(t *testing.T) {
+	h := newHarness(t)
+	admin := h.adminSession.ID
+	for _, name := range []string{"First", "Second"} {
+		wantRedirect(t, h.postFormAs(t, "/settings/api/service-users", url.Values{"name": {name}, "role": {"user"}}, admin), http.StatusSeeOther, "/settings/api")
+	}
+	users, err := h.store.APIAccessStore().ListServiceUsers(t.Context())
+	if err != nil || len(users) != 2 { t.Fatalf("users: %v %v", users, err) }
+	owner := itoa(users[1].ID)
+	selected := `href="/settings/api?service_user=` + owner + `" aria-current="true"`
+	rec := h.postFormAs(t, "/settings/api/keys", url.Values{"service_user_id": {owner}, "name": {"Key"}, "scopes": {"tickets:read"}}, admin)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), selected) || !apiTokenPattern.MatchString(rec.Body.String()) || rec.Header().Get("Cache-Control") != "no-store" { t.Error("create did not retain selection and once-only token") }
+	keys, err := h.store.APIAccessStore().ListAPIKeys(t.Context())
+	if err != nil || len(keys) != 1 { t.Fatalf("keys: %v %v", keys, err) }
+	location := "/settings/api?service_user=" + owner
+	for _, tc := range []struct { path string; form url.Values }{
+		{"/settings/api/keys/" + itoa(keys[0].ID) + "/revoke", url.Values{}},
+		{"/settings/api/service-users/" + owner + "/active", url.Values{"active": {"0"}}},
+		{"/settings/api/service-users/" + owner + "/active", url.Values{"active": {"1"}}},
+	} {
+		rec := h.postFormAs(t, tc.path, tc.form, admin)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != location { t.Errorf("%s: status %d location %q", tc.path, rec.Code, rec.Header().Get("Location")) }
+		page := h.get(t, location, false).Body.String()
+		if !strings.Contains(page, selected) || apiTokenPattern.MatchString(page) { t.Errorf("%s: selection missing or token repeated", tc.path) }
+	}
+}
+
 func TestSettingsAPITicketsAllOption(t *testing.T) {
 	f := newAPIFixture(t)
 	page := f.h.get(t, "/settings/api", false).Body.String()
@@ -182,7 +235,7 @@ func TestSettingsAPIServiceUserAndKeyLifecycle(t *testing.T) {
 		}
 	}
 
-	wantRedirect(t, h.postFormAs(t, "/settings/api/keys/"+itoa(keys[0].ID)+"/revoke", url.Values{}, admin), http.StatusSeeOther, "/settings/api")
+	wantRedirect(t, h.postFormAs(t, "/settings/api/keys/"+itoa(keys[0].ID)+"/revoke", url.Values{}, admin), http.StatusSeeOther, "/settings/api?service_user="+itoa(bot.ID))
 	if keys, _ := h.store.APIAccessStore().ListAPIKeys(t.Context()); keys[0].RevokedAt == nil {
 		t.Error("revoke did not revoke the key")
 	}
@@ -195,7 +248,7 @@ func TestSettingsAPIServiceUserAndKeyLifecycle(t *testing.T) {
 	if got, _ := h.store.UserStore().GetByID(t.Context(), bot.ID); !got.Active {
 		t.Fatal("a refused switch deactivated the service user")
 	}
-	wantRedirect(t, h.postFormAs(t, "/settings/api/service-users/"+itoa(bot.ID)+"/active", url.Values{"active": {"0"}}, admin), http.StatusSeeOther, "/settings/api")
+	wantRedirect(t, h.postFormAs(t, "/settings/api/service-users/"+itoa(bot.ID)+"/active", url.Values{"active": {"0"}}, admin), http.StatusSeeOther, "/settings/api?service_user="+itoa(bot.ID))
 	if got, _ := h.store.UserStore().GetByID(t.Context(), bot.ID); got.Active {
 		t.Error("deactivate left the service user active")
 	}

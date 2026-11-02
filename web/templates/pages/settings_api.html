@@ -28,16 +28,22 @@
       </div>
     </section>
     <section class="settings-group">
-      <h2 class="settings-section-title">{{t "settings.api.service_users.title"}}</h2>
-      <form class="settings-row" method="post" action="/settings/api/service-users">
+      <div class="api-service-heading"><div><h2 class="settings-section-title">{{t "settings.api.service_users.title"}}</h2><p>{{t "settings.api.service_users.help"}}</p></div>
+      <details class="api-create-user"{{if .CreateUserError}} open{{end}}><summary class="btn primary">{{t "settings.api.service_users.create"}}</summary>
+      <form class="api-create-user-form" method="post" action="/settings/api/service-users">
         <div><h3>{{t "settings.api.service_users.new"}}</h3><p>{{t "settings.api.service_users.help"}}</p></div>
         <div class="settings-pair">
-          <div class="field"><label for="service_user_name">{{t "settings.api.service_users.name"}}</label><input type="text" id="service_user_name" name="name" required></div>
-          <div class="field"><label for="service_user_role">{{t "settings.api.service_users.role"}}</label><select id="service_user_role" name="role"><option value="user">{{t "label.role.user"}}</option><option value="agent">{{t "label.role.agent"}}</option></select></div>
+          <div class="field"><label for="service_user_name">{{t "settings.api.service_users.name"}}</label><input type="text" id="service_user_name" name="name"{{if .CreateUserError}} value="{{.DraftName}}"{{end}} required></div>
+          <div class="field"><label for="service_user_role">{{t "settings.api.service_users.role"}}</label><select id="service_user_role" name="role"><option value="user">{{t "label.role.user"}}</option><option value="agent"{{if eq .DraftRole "agent"}} selected{{end}}>{{t "label.role.agent"}}</option></select></div>
           <div><button class="btn primary" type="submit">{{t "settings.api.service_users.create"}}</button></div>
         </div>
-      </form>
-{{range .ServiceUsers}}{{$svc := .}}      <article class="api-service-user" aria-labelledby="api-service-user-{{.ID}}">
+      </form></details></div>
+{{if .ServiceUsers}}      <div class="api-service-users-grid">
+        <div class="api-service-user-list" aria-label="{{t "settings.api.service_users.title"}}">
+{{range $i, $svc := .ServiceUsers}}          <a class="api-service-choice" href="/settings/api?service_user={{.ID}}"{{if or (eq $.SelectedID .ID) (and (eq $.SelectedID 0) (eq $i 0))}} aria-current="true"{{end}}><strong>{{.Name}}</strong><small>{{t .RoleLabel}} · {{if .Active}}{{t "settings.api.service_users.active"}}{{else}}{{t "settings.api.service_users.deactivated"}}{{end}} · {{len .Keys}} {{if eq (len .Keys) 1}}{{t "settings.api.key.count_one"}}{{else}}{{t "settings.api.key.count_other"}}{{end}}</small></a>
+{{end}}        </div>
+        <div class="api-service-inspector">
+{{range $i, $svc := .ServiceUsers}}      <article class="api-service-user" id="api-inspector-{{.ID}}" aria-labelledby="api-service-user-{{.ID}}"{{if not (or (eq $.SelectedID .ID) (and (eq $.SelectedID 0) (eq $i 0)))}} hidden{{end}}>
         <header class="api-service-user-head">
           <div><h3 id="api-service-user-{{.ID}}">{{.Name}}</h3><p>{{t .RoleLabel}} · {{if .Active}}{{t "settings.api.service_users.active"}}{{else}}{{t "settings.api.service_users.deactivated"}}{{end}}</p></div>
           <form method="post" action="/settings/api/service-users/{{.ID}}/active">
@@ -45,32 +51,30 @@
             <button class="btn{{if .Active}} danger{{end}} small" type="submit">{{if .Active}}{{tf "settings.api.service_users.deactivate" .Name}}{{else}}{{tf "settings.api.service_users.reactivate" .Name}}{{end}}</button>
           </form>
         </header>
-{{if .Keys}}        <div class="api-keys-wrap"><table class="api-keys-table">
-          <thead><tr><th scope="col">{{t "settings.api.key.col_name"}}</th><th scope="col">{{t "settings.api.key.col_scopes"}}</th><th scope="col">{{t "settings.api.key.col_status"}}</th><th scope="col">{{t "settings.api.key.col_expires"}}</th><th scope="col">{{t "settings.api.key.col_last_used"}}</th><th scope="col"><span class="visually-hidden">{{t "settings.api.key.col_actions"}}</span></th></tr></thead>
-          <tbody>
-{{range .Keys}}            <tr>
-              <td><strong>{{.Name}}</strong><small>tkt_{{.PublicID}}_…</small></td>
-              <td>{{range $i, $s := .Scopes}}{{if $i}}, {{end}}<code>{{$s}}</code>{{end}}</td>
-              <td>{{t .Status}}</td>
-              <td>{{if .ExpiresOn}}{{.ExpiresOn}}{{else}}{{t "settings.api.key.never"}}{{end}}</td>
-              <td>{{if .LastUsed}}{{.LastUsed}}{{else}}{{t "settings.api.key.never_used"}}{{end}}</td>
-              <td>{{if .Live}}<form method="post" action="/settings/api/keys/{{.ID}}/revoke"><button class="btn danger small" type="submit">{{tf "settings.api.key.revoke" .Name}}</button></form>{{end}}</td>
-            </tr>
-{{end}}          </tbody>
-        </table></div>
+{{if .Keys}}        <div class="api-keys-wrap"><ul class="api-key-list">
+{{range .Keys}}          <li class="api-key-record">
+            <h4 class="api-key-name">{{.Name}}</h4>
+            <p><code>tkt_{{.PublicID}}_…</code> · {{t .Status}}</p>
+            <p>{{t "settings.api.key.col_scopes"}}: {{range $i, $s := .Scopes}}{{if $i}}, {{end}}<code>{{$s}}</code>{{end}}</p>
+            <p>{{t "settings.api.key.col_expires"}}: {{if .ExpiresOn}}{{.ExpiresOn}}{{else}}{{t "settings.api.key.never"}}{{end}} · {{t "settings.api.key.col_last_used"}}: {{if .LastUsed}}{{.LastUsed}}{{else}}{{t "settings.api.key.never_used"}}{{end}}</p>
+{{if .Live}}            <form method="post" action="/settings/api/keys/{{.ID}}/revoke"><button class="btn danger small" type="submit">{{tf "settings.api.key.revoke" .Name}}</button></form>
+{{end}}          </li>
+{{end}}        </ul></div>
 {{else}}        <p class="api-empty">{{t "settings.api.key.none"}}</p>
-{{end}}{{if .Active}}        <form class="api-key-form" method="post" action="/settings/api/keys">
+{{end}}{{if .Active}}        <details class="api-create-key"{{if and $.KeyError (eq $.SelectedID .ID)}} open{{end}}><summary>{{tf "settings.api.key.create" .Name}}</summary><form class="api-key-form" method="post" action="/settings/api/keys">
           <input type="hidden" name="service_user_id" value="{{.ID}}">
-          <div class="field"><label for="api_key_name_{{.ID}}">{{t "settings.api.key.name"}}</label><input type="text" id="api_key_name_{{.ID}}" name="name" required></div>
-          <div class="field"><label for="api_key_expires_{{.ID}}">{{t "settings.api.key.expires"}}</label><input type="date" id="api_key_expires_{{.ID}}" name="expires_on"><p class="help">{{t "settings.api.key.expires_help"}}</p></div>
+          <div class="field"><label for="api_key_name_{{.ID}}">{{t "settings.api.key.name"}}</label><input type="text" id="api_key_name_{{.ID}}" name="name"{{if and $.KeyError (eq $.SelectedID .ID)}} value="{{$.DraftName}}"{{end}} required></div>
+          <div class="field"><label for="api_key_expires_{{.ID}}">{{t "settings.api.key.expires"}}</label><input type="date" id="api_key_expires_{{.ID}}" name="expires_on"{{if and $.KeyError (eq $.SelectedID .ID)}} value="{{$.DraftExpiry}}"{{end}}><p class="help">{{t "settings.api.key.expires_help"}}</p></div>
           <fieldset class="api-key-scopes">
             <legend>{{t "settings.api.key.scopes"}}</legend>
-{{range $.ScopeOptions}}{{if or $svc.CanInternal (and (ne .Scope "comments:internal") (ne .Scope "tickets:all"))}}            <label><input type="checkbox" name="scopes" value="{{.Scope}}"{{if eq .Scope "tickets:all"}} aria-describedby="api-all-help-{{$svc.ID}}"{{end}}> <code>{{.Scope}}</code> {{t .Label}}</label>
+{{range $.ScopeOptions}}{{if or $svc.CanInternal (and (ne .Scope "comments:internal") (ne .Scope "tickets:all"))}}            <label><input type="checkbox" name="scopes" value="{{.Scope}}"{{if and $.KeyError (eq $.SelectedID $svc.ID) (index $.DraftScopes .Scope)}} checked{{end}}{{if eq .Scope "tickets:all"}} aria-describedby="api-all-help-{{$svc.ID}}"{{end}}> <code>{{.Scope}}</code> {{t .Label}}</label>
 {{if eq .Scope "tickets:all"}}            <p class="help" id="api-all-help-{{$svc.ID}}">{{t "settings.api.scope.tickets_all_help"}}</p>
 {{end}}{{end}}{{end}}          </fieldset>
           <div class="api-key-submit"><button class="btn primary" type="submit">{{tf "settings.api.key.create" .Name}}</button></div>
-        </form>
+        </form></details>
 {{end}}      </article>
+{{end}}        </div>
+      </div>
 {{else}}      <p class="api-empty">{{t "settings.api.service_users.none"}}</p>
 {{end}}    </section>
   </div>

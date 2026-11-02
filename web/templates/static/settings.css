@@ -964,17 +964,36 @@
 .api-token-once p { margin: 4px 0 12px; color: var(--muted); font-size: 12px; }
 .api-token-value { width: 100%; font-family: var(--mono); font-size: 13px; }
 .api-access-state { margin: 0 0 8px; color: var(--ink-strong); font-size: 13px; font-weight: 600; }
-.api-service-user { max-width: 960px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.api-service-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line-strong); }
+.api-service-heading h2 { font-size: 20px; }
+.api-service-heading p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.api-create-user { position: relative; }
+.api-create-user summary, .api-create-key summary { cursor: pointer; }
+.api-create-user-form { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; }
+.api-service-users-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 24px; }
+.api-service-choice { display: block; padding: 14px 12px; border-bottom: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+.api-service-choice:hover, .api-service-choice:focus-visible, .api-service-choice[aria-current="true"] { background: var(--hover); }
+.api-service-choice[aria-current="true"] { box-shadow: inset 3px 0 var(--accent); }
+.api-service-choice strong, .api-service-choice small { display: block; }
+.api-service-choice strong { font-weight: 600; }
+.api-service-choice small { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.api-service-inspector .api-service-user[hidden] { display: none; }
+.api-service-user { max-width: 960px; min-width: 0; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.api-create-key { margin-top: 16px; }
+.api-create-key summary { font-weight: 600; }
+@media (max-width: 760px) { .api-service-users-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; } .api-service-heading { flex-wrap: wrap; } }
+/* Keep focused or scrolled-to service users clear of the mobile shell chrome. */
+@media (max-width: 640px) { .api-service-choice { scroll-margin-block: 52px 72px; } }
 .api-service-user:last-child { border-bottom: 0; }
 .api-service-user-head { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
 .api-service-user-head h3 { margin: 0; color: var(--ink-strong); font-size: 13px; font-weight: 600; }
 .api-service-user-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
-.api-keys-wrap { position: relative; max-width: 100%; margin-top: 12px; overflow-x: auto; }
-.api-keys-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.api-keys-table th { padding: 6px 8px; color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; border-bottom: 1px solid var(--line); }
-.api-keys-table td { padding: 8px; vertical-align: top; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-.api-keys-table td small { display: block; color: var(--muted); font-size: 12px; }
-.api-keys-table td:last-child { text-align: right; white-space: nowrap; }
+.api-keys-wrap { max-width: 100%; margin-top: 12px; }
+.api-key-list { margin: 0; padding: 0; list-style: none; }
+.api-key-record { padding: 14px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.api-key-name { margin: 0; color: var(--ink-strong); font-size: 13px; font-weight: 600; }
+.api-key-record p { margin: 4px 0; color: var(--muted); font-size: 12px; }
+.api-key-record form { margin-top: 8px; }
 .api-empty { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
 .api-key-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 720px; margin-top: 16px; }
 .api-key-form .field { margin: 0; }
@@ -996,5 +1015,4 @@
 @media (max-width: 760px) {
   .api-key-form { grid-template-columns: minmax(0, 1fr); }
   .api-service-user-head { flex-direction: column; }
-  .api-keys-table td { overflow-wrap: normal; white-space: nowrap; }
 }
