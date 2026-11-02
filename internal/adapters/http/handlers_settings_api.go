@@ -63,15 +63,15 @@ type settingsAPIData struct {
 	ServiceUsers []apiServiceUserRow
 	ScopeOptions []apiScopeOption
 	// NewToken is the token of the key this response created, shown once.
-	NewToken    string
-	NewTokenFor string
-	SelectedID int64
+	NewToken        string
+	NewTokenFor     string
+	SelectedID      int64
 	CreateUserError bool
-	KeyError bool
-	DraftName string
-	DraftRole string
-	DraftExpiry string
-	DraftScopes map[domain.APIKeyScope]bool
+	KeyError        bool
+	DraftName       string
+	DraftRole       string
+	DraftExpiry     string
+	DraftScopes     map[domain.APIKeyScope]bool
 }
 
 type apiServiceUserRow struct {
@@ -147,12 +147,16 @@ func (h *SettingsHandlers) renderAPI(w http.ResponseWriter, r *http.Request, sta
 			data.SelectedID, _ = strconv.ParseInt(r.PostFormValue("service_user_id"), 10, 64)
 			data.DraftName, data.DraftExpiry = r.PostFormValue("name"), r.PostFormValue("expires_on")
 			data.DraftScopes = make(map[domain.APIKeyScope]bool)
-			for _, scope := range r.PostForm["scopes"] { data.DraftScopes[domain.APIKeyScope(scope)] = true }
+			for _, scope := range r.PostForm["scopes"] {
+				data.DraftScopes[domain.APIKeyScope(scope)] = true
+			}
 		}
 	}
 	found := false
 	for _, v := range views {
-		if v.User.ID == data.SelectedID { found = true }
+		if v.User.ID == data.SelectedID {
+			found = true
+		}
 		row := apiServiceUserRow{
 			ID: v.User.ID, Name: v.User.Name, RoleLabel: userRoleLabel(v.User.Role), Active: v.User.Active,
 			CreatedOn: apiDate(v.User.CreatedAt), CanInternal: v.User.Role.AtLeast(domain.RoleAgent),
@@ -181,7 +185,9 @@ func (h *SettingsHandlers) renderAPI(w http.ResponseWriter, r *http.Request, sta
 		}
 		data.ServiceUsers = append(data.ServiceUsers, row)
 	}
-	if !found && len(data.ServiceUsers) > 0 { data.SelectedID = data.ServiceUsers[0].ID }
+	if !found && len(data.ServiceUsers) > 0 {
+		data.SelectedID = data.ServiceUsers[0].ID
+	}
 	h.renderer.Render(w, r, "settings_api", "", data, status)
 }
 

@@ -437,14 +437,18 @@
     else tokenPanel.removeAttribute("popover");
     token.focus();
     function closeToken() {
-      if (typeof tokenPanel.hidePopover === "function" && tokenPanel.matches(":popover-open")) tokenPanel.hidePopover();
+      if (typeof tokenPanel.hidePopover === "function" && tokenPanel.matches(":popover-open"))
+        tokenPanel.hidePopover();
       else tokenPanel.hidden = true;
       var selected = document.querySelector('.api-service-choice[aria-current="true"]');
       if (selected) selected.focus();
     }
     close.addEventListener("click", closeToken);
     tokenPanel.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") { event.preventDefault(); closeToken(); }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeToken();
+      }
     });
   }
 })();

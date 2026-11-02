@@ -124,14 +124,29 @@ func TestSettingsAPIInspectorRecovery(t *testing.T) {
 	wantRedirect(t, h.postFormAs(t, "/settings/api/service-users", url.Values{"name": {"First"}, "role": {"user"}}, admin), http.StatusSeeOther, "/settings/api")
 	wantRedirect(t, h.postFormAs(t, "/settings/api/service-users", url.Values{"name": {"Second"}, "role": {"agent"}}, admin), http.StatusSeeOther, "/settings/api")
 	users, err := h.store.APIAccessStore().ListServiceUsers(t.Context())
-	if err != nil || len(users) != 2 { t.Fatalf("users: %v %v", users, err) }
+	if err != nil || len(users) != 2 {
+		t.Fatalf("users: %v %v", users, err)
+	}
 	id := itoa(users[1].ID)
 	page := h.get(t, "/settings/api?service_user="+id, false).Body.String()
-	for _, want := range []string{`aria-current="true"`, `0 keys`} { if !strings.Contains(page, want) { t.Errorf("missing %q", want) } }
+	for _, want := range []string{`aria-current="true"`, `0 keys`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
 	rec := h.postFormAs(t, "/settings/api/keys", url.Values{"service_user_id": {id}, "name": {"Draft key"}, "expires_on": {"2099-01-01"}}, admin)
-	if rec.Code != http.StatusUnprocessableEntity { t.Fatalf("status %d", rec.Code) }
-	for _, want := range []string{`value="Draft key"`, `value="2099-01-01"`, `<details class="api-create-key" open`, `aria-current="true"`} { if !strings.Contains(rec.Body.String(), want) { t.Errorf("rejected form missing %q", want) } }
-	keys, err := h.store.APIAccessStore().ListAPIKeys(t.Context()); if err != nil || len(keys) != 0 { t.Errorf("rejected form stored keys: %v %v", keys, err) }
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status %d", rec.Code)
+	}
+	for _, want := range []string{`value="Draft key"`, `value="2099-01-01"`, `<details class="api-create-key" open`, `aria-current="true"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("rejected form missing %q", want)
+		}
+	}
+	keys, err := h.store.APIAccessStore().ListAPIKeys(t.Context())
+	if err != nil || len(keys) != 0 {
+		t.Errorf("rejected form stored keys: %v %v", keys, err)
+	}
 }
 
 func TestSettingsAPISelectionAfterMutations(t *testing.T) {
@@ -141,23 +156,36 @@ func TestSettingsAPISelectionAfterMutations(t *testing.T) {
 		wantRedirect(t, h.postFormAs(t, "/settings/api/service-users", url.Values{"name": {name}, "role": {"user"}}, admin), http.StatusSeeOther, "/settings/api")
 	}
 	users, err := h.store.APIAccessStore().ListServiceUsers(t.Context())
-	if err != nil || len(users) != 2 { t.Fatalf("users: %v %v", users, err) }
+	if err != nil || len(users) != 2 {
+		t.Fatalf("users: %v %v", users, err)
+	}
 	owner := itoa(users[1].ID)
 	selected := `href="/settings/api?service_user=` + owner + `" aria-current="true"`
 	rec := h.postFormAs(t, "/settings/api/keys", url.Values{"service_user_id": {owner}, "name": {"Key"}, "scopes": {"tickets:read"}}, admin)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), selected) || !apiTokenPattern.MatchString(rec.Body.String()) || rec.Header().Get("Cache-Control") != "no-store" { t.Error("create did not retain selection and once-only token") }
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), selected) || !apiTokenPattern.MatchString(rec.Body.String()) || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Error("create did not retain selection and once-only token")
+	}
 	keys, err := h.store.APIAccessStore().ListAPIKeys(t.Context())
-	if err != nil || len(keys) != 1 { t.Fatalf("keys: %v %v", keys, err) }
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("keys: %v %v", keys, err)
+	}
 	location := "/settings/api?service_user=" + owner
-	for _, tc := range []struct { path string; form url.Values }{
+	for _, tc := range []struct {
+		path string
+		form url.Values
+	}{
 		{"/settings/api/keys/" + itoa(keys[0].ID) + "/revoke", url.Values{}},
 		{"/settings/api/service-users/" + owner + "/active", url.Values{"active": {"0"}}},
 		{"/settings/api/service-users/" + owner + "/active", url.Values{"active": {"1"}}},
 	} {
 		rec := h.postFormAs(t, tc.path, tc.form, admin)
-		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != location { t.Errorf("%s: status %d location %q", tc.path, rec.Code, rec.Header().Get("Location")) }
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != location {
+			t.Errorf("%s: status %d location %q", tc.path, rec.Code, rec.Header().Get("Location"))
+		}
 		page := h.get(t, location, false).Body.String()
-		if !strings.Contains(page, selected) || apiTokenPattern.MatchString(page) { t.Errorf("%s: selection missing or token repeated", tc.path) }
+		if !strings.Contains(page, selected) || apiTokenPattern.MatchString(page) {
+			t.Errorf("%s: selection missing or token repeated", tc.path)
+		}
 	}
 }
 
@@ -217,7 +245,9 @@ func TestSettingsAPIServiceUserAndKeyLifecycle(t *testing.T) {
 		t.Fatalf("the created token is not shown: %.2000s", body)
 	}
 	for _, want := range []string{`class="api-token-once"`, `popover="manual"`, `aria-labelledby="api-token-title"`, `data-api-token-copy`, `data-api-token-close`} {
-		if !strings.Contains(body, want) { t.Errorf("created key popover missing %q", want) }
+		if !strings.Contains(body, want) {
+			t.Errorf("created key popover missing %q", want)
+		}
 	}
 	assertNoWhitespaceViolations(t, body)
 	keys, _ := h.store.APIAccessStore().ListAPIKeys(t.Context())
