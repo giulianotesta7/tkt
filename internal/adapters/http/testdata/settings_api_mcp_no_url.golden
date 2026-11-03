@@ -1,0 +1,20 @@
+<section class="settings-group" aria-labelledby="mcp-title">
+      <h2 class="settings-section-title" id="mcp-title">MCP clients</h2>
+      <div class="error-banner" role="alert" id="mcp-error">MCP clients need the public URL</div>
+      <div class="settings-row">
+        <div><h3>MCP</h3><p>Lets people connect AI assistants such as Claude, VS Code or Cursor. Each one acts as the person who allowed it, within that person&#39;s role. While off, every MCP connection is refused.</p></div>
+        <div>
+          <form method="post" action="/settings/api/mcp">
+            <input type="hidden" name="mcp_enabled" value="1">
+            <p class="api-access-state">Off</p>
+            <button class="btn primary" type="submit" aria-describedby="mcp-error">Turn on MCP clients</button>
+          </form>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div><h3>Connection URL</h3><p>The address to give an assistant when adding tkt to it.</p></div>
+        <div>
+          <p class="help">MCP clients need the public URL: the TKT address in Settings → Instance. Until it is set, they cannot be turned on. <a href="/settings/instance">Set the TKT address</a></p>
+        </div>
+      </div>
+    </section>

@@ -160,6 +160,10 @@ type loginData struct {
 	// (issue #419, S3/S12): the account exists, no role was granted, and the
 	// callback issued no session, so the only way out is back to the form.
 	CompanyPending bool
+	// Next is the safe return path the sign-in lands on (issue #493, S5),
+	// rendered as a hidden field and on every company sign-in start link. Empty
+	// when the request carried none or an unsafe one.
+	Next string
 }
 
 // loginPageData assembles the sign-in payload: the optional message and the
@@ -169,7 +173,9 @@ type loginData struct {
 // banner travels as a query flag that carries no token, so a redirect can never
 // leak the link a visitor just used.
 func (h *AuthHandlers) loginPageData(r *http.Request, message, email string) loginData {
+	next, _ := safeReturnPath(r.FormValue(returnPathParam))
 	data := loginData{
+		Next:            next,
 		Error:           message,
 		Email:           email,
 		Brand:           brandFromContext(r.Context()),
@@ -227,7 +233,7 @@ func (h *AuthHandlers) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, sessionCookieValue(session, r.TLS != nil))
-	redirect(w, r, "/tickets")
+	redirect(w, r, landingFor(r.Form.Get(returnPathParam)))
 }
 
 func (h *AuthHandlers) logout(w http.ResponseWriter, r *http.Request) {

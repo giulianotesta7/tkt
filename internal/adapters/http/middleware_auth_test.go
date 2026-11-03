@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -1223,4 +1224,69 @@ func TestMiddlewareCompanyCallbackIsNotSwallowedByTheLoginBranch(t *testing.T) {
 		t.Fatalf("signed-in GET /auth/google/callback = %d %q, want the callback to run", rec.Code, rec.Body.String())
 	}
 	wantRedirect(t, doRequest(mux, mw, http.MethodGet, "/login", signedIn), http.StatusSeeOther, "/tickets")
+}
+
+// TestMiddlewareAuthorizeRefusalCarriesTheReturnPath proves the one return-to
+// the session gate offers (issue #493, S5): an anonymous navigation to the
+// OAuth consent page is sent to /login with the request it made, so signing in
+// lands the person back on the consent screen. The escaped value round-trips to
+// the exact request URI.
+func TestMiddlewareAuthorizeRefusalCarriesTheReturnPath(t *testing.T) {
+	s := openTestStore(t)
+	seedUser(t, s, "Ana", "ana@example.com")
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth/authorize", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("consent")) })
+
+	rec := doRequest(mux, mw, http.MethodGet, "/oauth/authorize?a=b", nil)
+
+	wantRedirect(t, rec, http.StatusSeeOther, "/login?next=%2Foauth%2Fauthorize%3Fa%3Db")
+	location, err := url.Parse(rec.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse Location: %v", err)
+	}
+	if got := location.Query().Get("next"); got != "/oauth/authorize?a=b" {
+		t.Errorf("next = %q, want the original request URI", got)
+	}
+}
+
+// TestMiddlewareOtherRefusalsKeepThePlainLoginTarget proves no other refusal
+// gains return-to behavior (issue #493, L6): any other page, an HTMX request,
+// and an unsafe method on the authorize path still answer exactly /login.
+func TestMiddlewareOtherRefusalsKeepThePlainLoginTarget(t *testing.T) {
+	s := openTestStore(t)
+	seedUser(t, s, "Ana", "ana@example.com")
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("protected")) })
+
+	for _, target := range []string{"/tickets?status=open", "/tickets/5", "/oauth/token", "/oauth/authorizex?a=b"} {
+		rec := doRequest(mux, mw, http.MethodGet, target, nil)
+		wantRedirect(t, rec, http.StatusSeeOther, "/login")
+	}
+	post := doRequest(mux, mw, http.MethodPost, "/oauth/authorize?a=b", nil)
+	wantRedirect(t, post, http.StatusSeeOther, "/login")
+	htmx := doRequest(mux, mw, http.MethodGet, "/oauth/authorize?a=b", map[string]string{"HX-Request": "true"})
+	wantHXRedirect(t, htmx, "/login")
+}
+
+// TestMiddlewareAuthedUserOnLoginFollowsASafeNext proves a signed-in visitor
+// sent to /login with a return path goes straight to it (issue #493, S5), while
+// an unsafe next falls back to /tickets.
+func TestMiddlewareAuthedUserOnLoginFollowsASafeNext(t *testing.T) {
+	s := openTestStore(t)
+	user := seedUser(t, s, "Ana", "ana@example.com")
+	session := seedSession(t, s, user.ID)
+	mw := NewSessionMiddleware(s.SessionStore(), s.UserStore(), s.SettingsStore())
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("login-form")) })
+	cookie := map[string]string{"Cookie": "tkt_session=" + session.ID}
+
+	safe := doRequest(mux, mw, http.MethodGet, "/login?next="+url.QueryEscape("/oauth/authorize?client_id=x&state=y"), cookie)
+	wantRedirect(t, safe, http.StatusSeeOther, "/oauth/authorize?client_id=x&state=y")
+
+	for _, next := range []string{"https://evil.example/", "//evil.example", "/\\evil"} {
+		rec := doRequest(mux, mw, http.MethodGet, "/login?next="+url.QueryEscape(next), cookie)
+		wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
+	}
 }

@@ -769,3 +769,98 @@ func TestLoginPageOffersNoProviderWhenTheConfigurationCannotBeRead(t *testing.T)
 		t.Errorf("an unreadable configuration must offer no provider, got: %.2000s", rec.Body.String())
 	}
 }
+
+// companyStartWithNext runs the start route with a return path and answers
+// every cookie it set, the state cookie first.
+func companyStartWithNext(t *testing.T, h *harness, provider, next string) []*http.Cookie {
+	t.Helper()
+	rec := doRequest(h.mux, h.mw, http.MethodGet, "/auth/"+provider+"/start?next="+url.QueryEscape(next), nil)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("GET /auth/%s/start = %d, want 303: %s", provider, rec.Code, rec.Body.String())
+	}
+	state := findCookie(rec, companyStateCookie)
+	if state == nil || state.Value == "" {
+		t.Fatalf("the start route set no %s cookie", companyStateCookie)
+	}
+	cookies := []*http.Cookie{state}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name != companyStateCookie {
+			cookies = append(cookies, c)
+		}
+	}
+	return cookies
+}
+
+// companyCallbackWithCookies runs the callback carrying every cookie the
+// browser would send back to it.
+func companyCallbackWithCookies(t *testing.T, h *harness, provider, queryState string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/auth/"+provider+"/callback?code=the-code&state="+url.QueryEscape(queryState), nil)
+	for _, c := range cookies {
+		req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	}
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+	return rec
+}
+
+// TestCompanyCallbackFollowsASafeNext proves the company sign-in half of the
+// return URL (issue #493, S5): a next given to the start route survives the
+// provider round trip, bound to that attempt, and the signed-in callback lands
+// on it; an unsafe next is dropped silently and the callback answers /tickets.
+func TestCompanyCallbackFollowsASafeNext(t *testing.T) {
+	cases := []struct {
+		name string
+		next string
+		want string
+	}{
+		{"local return path", authorizeReturn, authorizeReturn},
+		{"absolute URL", "https://evil.example/", "/tickets"},
+		{"scheme-relative URL", "//evil.example", "/tickets"},
+		{"backslash", "/\\evil", "/tickets"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			companySignInStore(t, h, companySignInIn(application.NewAccountsRequester))
+			seedUser(t, h.store, "Ana", "ana@example.com")
+			h.companyProvider.claims = googleClaims("ana@example.com")
+
+			cookies := companyStartWithNext(t, h, "google", tc.next)
+			for _, c := range cookies {
+				if c.Name == companyStateCookie {
+					continue
+				}
+				if !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.Path != "/auth/google/callback" {
+					t.Errorf("cookie %s: HttpOnly=%v SameSite=%v Path=%q, want HttpOnly, Lax, the callback path", c.Name, c.HttpOnly, c.SameSite, c.Path)
+				}
+				if strings.Contains(c.Value, "evil") {
+					t.Errorf("an unsafe next must never be stored, cookie %s = %q", c.Name, c.Value)
+				}
+			}
+			rec := companyCallbackWithCookies(t, h, "google", cookies[0].Value, cookies...)
+
+			wantRedirect(t, rec, http.StatusSeeOther, tc.want)
+			if findCookie(rec, sessionCookie) == nil {
+				t.Fatal("the signed-in outcome issued no session cookie")
+			}
+		})
+	}
+}
+
+// TestCompanyCallbackIgnoresANextFromAnotherAttempt proves the return path is
+// bound to the attempt that stored it: a next left by one start never steers
+// the callback of another.
+func TestCompanyCallbackIgnoresANextFromAnotherAttempt(t *testing.T) {
+	h := newHarness(t)
+	companySignInStore(t, h, companySignInIn(application.NewAccountsRequester))
+	seedUser(t, h.store, "Ana", "ana@example.com")
+	h.companyProvider.claims = googleClaims("ana@example.com")
+
+	first := companyStartWithNext(t, h, "google", authorizeReturn)
+	second, _ := companyStart(t, h, "google")
+	cookies := append([]*http.Cookie{second}, first[1:]...)
+	rec := companyCallbackWithCookies(t, h, "google", second.Value, cookies...)
+
+	wantRedirect(t, rec, http.StatusSeeOther, "/tickets")
+}

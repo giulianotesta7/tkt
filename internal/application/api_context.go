@@ -3,6 +3,7 @@ package application
 import "context"
 
 type apiKeyIDContextKey struct{}
+type oauthGrantIDContextKey struct{}
 type ticketScopeAllContextKey struct{}
 
 // WithTicketScopeAll carries the authenticated key's tickets:all scope. Policy
@@ -24,5 +25,17 @@ func WithAPIKeyID(ctx context.Context, id int64) context.Context {
 // APIKeyIDFrom returns the authenticated API key, if this is an API request.
 func APIKeyIDFrom(ctx context.Context) (int64, bool) {
 	id, ok := ctx.Value(apiKeyIDContextKey{}).(int64)
+	return id, ok
+}
+
+// WithOAuthGrantID attributes audit events in this request to the OAuth grant
+// whose token authenticated it; the actor remains the person.
+func WithOAuthGrantID(ctx context.Context, id int64) context.Context {
+	return context.WithValue(ctx, oauthGrantIDContextKey{}, id)
+}
+
+// OAuthGrantIDFrom returns the authenticating OAuth grant, if this is an MCP request.
+func OAuthGrantIDFrom(ctx context.Context) (int64, bool) {
+	id, ok := ctx.Value(oauthGrantIDContextKey{}).(int64)
 	return id, ok
 }

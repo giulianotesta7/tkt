@@ -79,6 +79,10 @@ type SettingsHandlers struct {
 	// apiAccess is the service users and API keys use cases behind the API
 	// section (issue #488). Unset means the section is absent.
 	apiAccess *application.APIAccessService
+	// oauth and publicURL are the MCP clients section of the API section
+	// (issue #493). Unset means the section is absent.
+	oauth     *application.OAuthService
+	publicURL application.EmailSettingsStore
 }
 
 // NewSettingsHandlers wires the settings routes against the appearance and

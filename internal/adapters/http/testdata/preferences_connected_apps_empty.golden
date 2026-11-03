@@ -1,0 +1,9 @@
+<section class="preferences-section" aria-labelledby="connected-apps-title">
+      <div class="preferences-section-head">
+        <h2 id="connected-apps-title">Connected apps</h2>
+        <p>Applications you allowed to act as you through MCP. Revoking one stops it at once.</p>
+      </div>
+      <div class="preferences-form">
+        <p class="preferences-note">No connected apps yet.</p>
+      </div>
+    </section>

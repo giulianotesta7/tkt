@@ -3,7 +3,7 @@
 **English** | [Español](../docs-es/administration.md)
 
 How an instance is run: roles, the catalog, workflows, SLAs, ticket creation, email,
-security, and API access. First account: [Getting started](getting-started.md). Container and configuration:
+security, API access, and MCP clients. First account: [Getting started](getting-started.md). Container and configuration:
 [Deployment](deployment.md).
 
 ## Roles
@@ -14,8 +14,8 @@ Each role includes everything below it.
 | --- | --- |
 | **User** | Create tickets, reply publicly on their own tickets, answer the resolution confirmation. |
 | **Agent** | Everything a user can do, plus work on tickets assigned to them or waiting on their desks: edit, change state, assign, write public replies and internal notes. |
-| **Admin** | Everything an agent can do, plus manage people (except admin and root accounts), desks, categories, workflows, metrics, service users and API keys, and every setting except Instance, email and the API switch. |
-| **Root** | Everything, plus grant and remove the **Admin** role, manage Instance and email settings, and turn the API on or off. |
+| **Admin** | Everything an agent can do, plus manage people (except admin and root accounts), desks, categories, workflows, metrics, service users and API keys, and every setting except Instance, email and the API and MCP switches. |
+| **Root** | Everything, plus grant and remove the **Admin** role, manage Instance and email settings, and turn the API and MCP clients on or off. |
 
 - Claimable tickets come from the desks a person belongs to, so add each agent to the desk
   that owns the category. Assigned tickets appear either way.
@@ -248,6 +248,27 @@ creates only its own tickets, whatever scopes its key carries.
 reactivating it does not bring those keys back. Creating and deactivating service users,
 creating and revoking keys, and turning the API on or off are recorded with the person who did
 it.
+
+## MCP clients
+
+AI assistants such as Claude, Claude Code, VS Code, and Cursor connect at `<public URL>/mcp` and
+act as the person who approves them. The [MCP server](mcp.md) guide covers connecting clients,
+the tools, and errors.
+
+- **The MCP switch** is in **Settings → API**, off by default and separate from the API switch.
+  Only root turns it on or off; administrators see its state. Turning it on or off is recorded
+  with the person who did it.
+- **The public URL** is required first: the **TKT address** in **Settings → Email
+  notifications**. Changing it later disconnects every client.
+- **While it is off**, `/mcp`, `/oauth/*`, and `/.well-known/oauth-*` answer 404 and existing
+  tokens stop working. Approvals are kept and work again when it is turned back on.
+- **A reverse proxy** must forward those paths to tkt; see
+  [Enable MCP](mcp.md#enable-mcp).
+- **Connections belong to people.** Each person reviews and revokes their own in
+  **Preferences → Connected apps**; there is no view of everyone's connections.
+  **Deactivate** a person to revoke every connection they hold.
+- **Access is role ∩ scopes.** A connection can never do more than its person's role, never
+  gets queue-wide `tickets:all`, and reaches nothing administrative.
 
 ## Next steps
 

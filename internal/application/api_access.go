@@ -89,11 +89,13 @@ type CreateAPIKeyInput struct {
 }
 
 // APIPrincipal is the identity an authenticated token acts as: its service
-// user, the key, its scopes, and the capabilities the role grants narrowed to
-// what the scopes allow.
+// user and key, or the person and OAuth grant of an MCP client (KeyID 0), its
+// scopes, and the capabilities the role grants narrowed to what the scopes
+// allow.
 type APIPrincipal struct {
 	User         domain.User
 	KeyID        int64
+	GrantID      int64
 	Scopes       []domain.APIKeyScope
 	Capabilities Capabilities
 }

@@ -200,6 +200,10 @@ func (s *Store) AlertUnitOfWork() application.AlertUnitOfWork {
 // APIAccessStore returns the service users and API keys port (issue #488).
 func (s *Store) APIAccessStore() application.APIAccessStore { return newAPIAccessStore(s.db) }
 
+// OAuthStore returns the MCP OAuth clients, grants, codes, tokens and switch
+// port (issue #493).
+func (s *Store) OAuthStore() application.OAuthStore { return newOAuthStore(s.db) }
+
 // UserStore returns the user port (task 4.4).
 func (s *Store) UserStore() application.UserStore { return newUserStore(s.db) }
 

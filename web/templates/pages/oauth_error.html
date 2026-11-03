@@ -1,0 +1,15 @@
+{{define "title"}}{{tf "base.title.screen" (t "oauth.error.title") (brandHelpDesk .Brand)}}{{end}}
+{{define "content"}}
+<div class="preferences-screen">
+  <div class="command-header">
+    <div>
+      <h1 class="command-title">{{t "oauth.error.title"}}</h1>
+    </div>
+  </div>
+  <div class="error-banner" role="alert">{{t "oauth.error.body"}}</div>
+  <p class="preferences-note">{{t "oauth.error.code"}} <code>{{.Code}}</code></p>
+  <div class="preferences-actions">
+    <a class="btn" href="/tickets">{{t "oauth.error.back"}}</a>
+  </div>
+</div>
+{{end}}

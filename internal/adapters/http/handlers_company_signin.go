@@ -1,9 +1,12 @@
 package httpadapter
 
 import (
+	"crypto/subtle"
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/giulianotesta7/tkt/internal/application"
@@ -32,6 +35,14 @@ import (
 // it dies ten minutes after it was set — the same window the server-side
 // attempt lives in.
 const companyStateCookie = "tkt_company_state"
+
+// companyNextCookie carries the return path one attempt lands on (issue #493,
+// S5) across the provider round trip. Its value is the attempt's state, a dot,
+// and the query-escaped path, so a callback follows it only for the very
+// attempt that stored it; it shares the state cookie's path, flags and
+// lifetime. The application flow owns no return path, which is why it lives
+// beside the state rather than in the attempt row.
+const companyNextCookie = "tkt_company_next"
 
 // companyReadLog deduplicates a company sign-in configuration read failure the
 // same way languageReadLog and signinReadLog do (R4-002): the first failure
@@ -139,6 +150,12 @@ func (h *AuthHandlers) companyStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, companyStateCookieValue(start.State, provider, r.TLS != nil))
+	// An unsafe next is dropped silently: the attempt then lands on /tickets.
+	if next, ok := safeReturnPath(r.URL.Query().Get(returnPathParam)); ok {
+		c := companyStateCookieValue(start.State+"."+url.QueryEscape(next), provider, r.TLS != nil)
+		c.Name = companyNextCookie
+		http.SetCookie(w, c)
+	}
 	redirect(w, r, start.URL)
 }
 
@@ -159,6 +176,11 @@ func (h *AuthHandlers) companyCallback(w http.ResponseWriter, r *http.Request) {
 		cookieState = c.Value
 	}
 	clearCompanyStateCookie(w, provider, r.TLS != nil)
+	next := ""
+	if c, err := r.Cookie(companyNextCookie); err == nil {
+		next = companyNextFor(c.Value, cookieState)
+		clearCompanyNextCookie(w, provider, r.TLS != nil)
+	}
 
 	outcome, err := h.companyFlow.Complete(r.Context(), application.CompanySignInCallback{
 		Provider:    provider,
@@ -174,7 +196,7 @@ func (h *AuthHandlers) companyCallback(w http.ResponseWriter, r *http.Request) {
 	switch outcome.Kind {
 	case application.CompanySignInSignedIn:
 		http.SetCookie(w, companySessionCookieValue(outcome.Session, r.TLS != nil))
-		redirect(w, r, "/tickets")
+		redirect(w, r, landingFor(next))
 	case application.CompanySignInPending:
 		// No session: a pending account cannot open or see a ticket (S3), so the
 		// only thing the callback renders is the card that says so.
@@ -263,4 +285,28 @@ func clearCompanyStateCookie(w http.ResponseWriter, p application.CompanyProvide
 	c := companyStateCookieValue("", p, secure)
 	c.MaxAge = -1
 	http.SetCookie(w, c)
+}
+
+// clearCompanyNextCookie spends the return-path cookie alongside the state.
+func clearCompanyNextCookie(w http.ResponseWriter, p application.CompanyProvider, secure bool) {
+	c := companyStateCookieValue("", p, secure)
+	c.Name = companyNextCookie
+	c.MaxAge = -1
+	http.SetCookie(w, c)
+}
+
+// companyNextFor answers the return path a next cookie stored, only when it
+// was stored by the attempt whose state the browser presents; otherwise "".
+// The flow itself proves that state against the provider's echo and the
+// attempt row, so a next bound to it can only steer that one sign-in.
+func companyNextFor(value, cookieState string) string {
+	state, escaped, found := strings.Cut(value, ".")
+	if !found || cookieState == "" || subtle.ConstantTimeCompare([]byte(state), []byte(cookieState)) != 1 {
+		return ""
+	}
+	next, err := url.QueryUnescape(escaped)
+	if err != nil {
+		return ""
+	}
+	return next
 }

@@ -115,6 +115,23 @@
         </div>
       </form>
     </section>
+{{end}}{{if .ConnectedApps.Shown}}    <section class="preferences-section" aria-labelledby="connected-apps-title">
+      <div class="preferences-section-head">
+        <h2 id="connected-apps-title">{{t "preferences.apps.title"}}</h2>
+        <p>{{t "preferences.apps.help"}}</p>
+      </div>
+      <div class="preferences-form">
+{{range .ConnectedApps.Apps}}        <form class="field" method="post" action="/preferences/connected-apps/{{.ID}}/revoke">
+          <p class="field-value">{{.ClientName}}</p>
+          <p class="help">{{range $i, $s := .Scopes}}{{if $i}} · {{end}}{{t $s.Label}}{{end}}</p>
+          <p class="preferences-note">{{t "preferences.apps.connected"}} <time datetime="{{formatDatetime .CreatedAt}}">{{formatMonthDayYear .CreatedAt}}</time> · {{if .LastUsedAt.IsZero}}{{t "preferences.apps.never_used"}}{{else}}{{t "preferences.apps.last_used"}} <time datetime="{{formatDatetime .LastUsedAt}}">{{formatMonthDayYear .LastUsedAt}}</time>{{end}}</p>
+          <div class="preferences-actions">
+            <button class="btn danger small" type="submit">{{tf "preferences.apps.revoke" .ClientName}}</button>
+          </div>
+        </form>
+{{else}}        <p class="preferences-note">{{t "preferences.apps.none"}}</p>
+{{end}}      </div>
+    </section>
 {{end}}  </div>
 </div>
 {{end}}

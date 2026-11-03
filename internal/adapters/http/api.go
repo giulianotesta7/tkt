@@ -28,19 +28,21 @@ type apiBucket struct {
 // APIHandlers owns the bearer-only API boundary and its per-key token buckets.
 // Role authorization stays in application services; endpoints add scope gates.
 // Buckets allow 60 requests immediately and refill at one token per second.
-// They are local to this process and reset when the server restarts.
+// They are local to this process and reset when the server restarts. Keys are
+// namespaced by credential, "key:<id>" for API keys and "grant:<id>" for MCP
+// grants, since both ids count from 1.
 type APIHandlers struct {
 	api     *application.APIAccessService
 	clock   domain.Clock
 	mu      sync.Mutex
-	buckets map[int64]apiBucket
+	buckets map[string]apiBucket
 	mux     *http.ServeMux
 	reads   APIReadServices
 	writes  APIWriteServices
 }
 
 func NewAPIHandlers(api *application.APIAccessService, clock domain.Clock) *APIHandlers {
-	h := &APIHandlers{api: api, clock: clock, buckets: make(map[int64]apiBucket), mux: http.NewServeMux()}
+	h := &APIHandlers{api: api, clock: clock, buckets: make(map[string]apiBucket), mux: http.NewServeMux()}
 	h.mux.HandleFunc("GET /api/v1/me", h.me)
 	return h
 }
@@ -65,14 +67,7 @@ func (h *APIHandlers) Branch(browser http.Handler) http.Handler {
 func (h *APIHandlers) Wrap(next http.Handler) http.Handler {
 	limited := NewBodyLimitMiddleware().Wrap(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var token string
-		if values := r.Header.Values("Authorization"); len(values) == 1 {
-			parts := strings.Fields(values[0])
-			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-				token = parts[1]
-			}
-		}
-		p, err := h.api.Authenticate(r.Context(), token)
+		p, err := h.api.Authenticate(r.Context(), bearerToken(r))
 		if err != nil {
 			switch {
 			case errors.Is(err, application.ErrAPIDisabled):
@@ -85,7 +80,7 @@ func (h *APIHandlers) Wrap(next http.Handler) http.Handler {
 			}
 			return
 		}
-		if retry := h.take(p.KeyID); retry > 0 {
+		if retry := h.take("key:" + strconv.FormatInt(p.KeyID, 10)); retry > 0 {
 			w.Header().Set("Retry-After", strconv.Itoa(retry))
 			writeProblem(w, r, problemRateLimited, "")
 			return
@@ -104,7 +99,19 @@ func (h *APIHandlers) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-func (h *APIHandlers) take(keyID int64) int {
+// bearerToken answers the token of exactly one `Authorization: Bearer` header,
+// or "" for anything else.
+func bearerToken(r *http.Request) string {
+	if values := r.Header.Values("Authorization"); len(values) == 1 {
+		parts := strings.Fields(values[0])
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			return parts[1]
+		}
+	}
+	return ""
+}
+
+func (h *APIHandlers) take(key string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := h.clock.Now()
@@ -115,7 +122,7 @@ func (h *APIHandlers) take(keyID int64) int {
 			delete(h.buckets, id)
 		}
 	}
-	b, ok := h.buckets[keyID]
+	b, ok := h.buckets[key]
 	if !ok {
 		b = apiBucket{tokens: 60, at: now}
 	}
@@ -124,11 +131,11 @@ func (h *APIHandlers) take(keyID int64) int {
 		b.at = now
 	}
 	if b.tokens < 1 {
-		h.buckets[keyID] = b
+		h.buckets[key] = b
 		return int(math.Ceil(1 - b.tokens))
 	}
 	b.tokens--
-	h.buckets[keyID] = b
+	h.buckets[key] = b
 	return 0
 }
 

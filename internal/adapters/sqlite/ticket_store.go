@@ -530,12 +530,16 @@ func appendAuditEventsTx(ctx context.Context, tx *sql.Tx, events ...domain.Audit
 	if id, ok := application.APIKeyIDFrom(ctx); ok {
 		apiKeyID = id
 	}
+	var oauthGrantID any
+	if id, ok := application.OAuthGrantIDFrom(ctx); ok {
+		oauthGrantID = id
+	}
 	for _, e := range events {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, note, actor_user_id, reason, desk_id, step_index, closure_via, created_at, api_key_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events (ticket_id, actor, action, field, from_value, to_value, note, actor_user_id, reason, desk_id, step_index, closure_via, created_at, api_key_id, oauth_grant_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.TicketID, e.Actor, e.Action, nullableString(e.Field), nullableString(e.FromValue),
 			nullableString(e.ToValue), nullableString(e.Note), nullableInt64(e.ActorUserID),
-			nullableString(e.Reason), nullableInt64(e.DeskID), nullableInt(e.StepIndex), nullableString(e.ClosureVia), formatTime(e.CreatedAt), apiKeyID); err != nil {
+			nullableString(e.Reason), nullableInt64(e.DeskID), nullableInt(e.StepIndex), nullableString(e.ClosureVia), formatTime(e.CreatedAt), apiKeyID, oauthGrantID); err != nil {
 			return fmt.Errorf("sqlite: append audit event: %w", err)
 		}
 	}

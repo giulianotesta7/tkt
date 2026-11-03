@@ -123,6 +123,25 @@
         </div>
       </div>
     </section>
+    <section class="settings-group" aria-labelledby="mcp-title">
+      <h2 class="settings-section-title" id="mcp-title">MCP clients</h2>
+      <div class="settings-row">
+        <div><h3>MCP</h3><p>Lets people connect AI assistants such as Claude, VS Code or Cursor. Each one acts as the person who allowed it, within that person&#39;s role. While off, every MCP connection is refused.</p></div>
+        <div>
+          <form method="post" action="/settings/api/mcp">
+            <input type="hidden" name="mcp_enabled" value="0">
+            <p class="api-access-state">On</p>
+            <button class="btn" type="submit">Turn off MCP clients</button>
+          </form>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div><h3>Connection URL</h3><p>The address to give an assistant when adding tkt to it.</p></div>
+        <div>
+          <input class="api-token-value" type="text" readonly value="https://tkt.example.com/mcp" aria-label="MCP connection URL" spellcheck="false" autocomplete="off">
+        </div>
+      </div>
+    </section>
     <section class="settings-group">
       <div class="api-service-heading"><div><h2 class="settings-section-title">Service users</h2><p>A service user is the identity an API key acts as. It never signs in, is never notified and is never assigned work.</p></div>
       <details class="api-create-user"><summary class="btn primary">Create service user</summary>

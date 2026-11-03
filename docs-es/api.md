@@ -18,6 +18,8 @@ Authorization: Bearer tkt_<id>_<secret>
 
 Se usa el token completo mostrado al crear la clave. La API autentica con tokens Bearer,
 no con cookies del navegador; no usa sesiones del navegador ni tokens CSRF.
+Los tokens de acceso OAuth que reciben los clientes MCP solo sirven en `/mcp` y aquí reciben
+401; ver [Servidor MCP](mcp.md).
 Las respuestas correctas usan `application/json` y `Cache-Control: no-store`.
 Los cuerpos POST usan `Content-Type: application/json`. Los campos desconocidos, el JSON
 mal formado y los valores JSON múltiples se rechazan con 400; un tipo de contenido no

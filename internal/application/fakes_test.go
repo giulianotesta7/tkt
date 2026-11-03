@@ -2894,3 +2894,279 @@ func (f *fakeTicketVisitStore) Changed(_ context.Context, userID int64, ticketID
 	}
 	return out, nil
 }
+
+// fakeOAuthStore implements OAuthStore (issue #493) over copies, mirroring the
+// SQLite adapter: ConsumeCode and RotateRefreshToken revoke the grant (revoked
+// by nil) on reuse, CreateGrant refuses an unknown code, and an unknown or
+// access-token id passed to RotateRefreshToken counts as reuse.
+//
+// Simplifications, documented per the fakes contract: there are no
+// transactions (no call can fail halfway, so each applies whole or not at
+// all); one counter numbers every table; the person-only, immutability and
+// deactivation triggers of migration 0042 are not modeled (the service is what
+// keeps a service user from owning a grant here); the mcp_enabled and
+// mcp_disabled admin events are recorded as plain action strings.
+type fakeOAuthStore struct {
+	enabled bool
+	events  []fakeAPIEvent
+	clients []*domain.OAuthClient
+	codes   []*domain.OAuthCode
+	grants  []*domain.OAuthGrant
+	tokens  []*domain.OAuthToken
+	nextID  int64
+	touches int
+}
+
+func newFakeOAuthStore() *fakeOAuthStore { return &fakeOAuthStore{nextID: 1} }
+
+func (f *fakeOAuthStore) id() int64 {
+	id := f.nextID
+	f.nextID++
+	return id
+}
+
+func (f *fakeOAuthStore) MCPEnabled(_ context.Context) (bool, error) { return f.enabled, nil }
+
+func (f *fakeOAuthStore) SetMCPEnabled(_ context.Context, enabled bool, actorID int64, _ time.Time) error {
+	f.enabled = enabled
+	action := "mcp_disabled"
+	if enabled {
+		action = "mcp_enabled"
+	}
+	f.events = append(f.events, fakeAPIEvent{action: action, actorID: actorID})
+	return nil
+}
+
+func (f *fakeOAuthStore) CreateClient(_ context.Context, c *domain.OAuthClient, pruneBefore time.Time) error {
+	kept := f.clients[:0:0]
+	for _, old := range f.clients {
+		if old.CreatedAt.Before(pruneBefore) && !f.clientReferenced(old.ID) {
+			codes := f.codes[:0:0]
+			for _, code := range f.codes {
+				if code.ClientID != old.ID {
+					codes = append(codes, code)
+				}
+			}
+			f.codes = codes
+			continue
+		}
+		kept = append(kept, old)
+	}
+	f.clients = kept
+	c.ID = f.id()
+	cp := *c
+	cp.RedirectURIs = append([]string(nil), c.RedirectURIs...)
+	f.clients = append(f.clients, &cp)
+	return nil
+}
+
+func (f *fakeOAuthStore) clientReferenced(id int64) bool {
+	for _, g := range f.grants {
+		if g.ClientID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *fakeOAuthStore) ClientByClientID(_ context.Context, clientID string) (*domain.OAuthClient, error) {
+	for _, c := range f.clients {
+		if c.ClientID == clientID {
+			cp := *c
+			cp.RedirectURIs = append([]string(nil), c.RedirectURIs...)
+			return &cp, nil
+		}
+	}
+	return nil, &domain.NotFoundError{Kind: "oauth client", ID: clientID}
+}
+
+func (f *fakeOAuthStore) CreateCode(_ context.Context, c *domain.OAuthCode) error {
+	kept := f.codes[:0:0]
+	for _, old := range f.codes {
+		if old.UsedAt == nil && old.ExpiresAt.Before(c.CreatedAt) {
+			continue
+		}
+		kept = append(kept, old)
+	}
+	f.codes = kept
+	c.ID = f.id()
+	cp := *c
+	cp.Scopes = append([]domain.APIKeyScope(nil), c.Scopes...)
+	f.codes = append(f.codes, &cp)
+	return nil
+}
+
+func (f *fakeOAuthStore) ConsumeCode(_ context.Context, codeHash string, at time.Time) (*domain.OAuthCode, error) {
+	for _, c := range f.codes {
+		if c.CodeHash != codeHash {
+			continue
+		}
+		if c.UsedAt != nil {
+			if c.GrantID != nil {
+				f.revokeByTkt(*c.GrantID, at)
+			}
+			return nil, application.ErrOAuthCodeReused
+		}
+		before := *c
+		before.Scopes = append([]domain.APIKeyScope(nil), c.Scopes...)
+		used := at
+		c.UsedAt = &used
+		return &before, nil
+	}
+	return nil, &domain.NotFoundError{Kind: "oauth code", ID: codeHash}
+}
+
+func (f *fakeOAuthStore) revokeByTkt(grantID int64, at time.Time) {
+	for _, g := range f.grants {
+		if g.ID == grantID && g.RevokedAt == nil {
+			revoked := at
+			g.RevokedAt = &revoked
+		}
+	}
+}
+
+func (f *fakeOAuthStore) CreateGrant(_ context.Context, g *domain.OAuthGrant, codeID int64, tokens ...*domain.OAuthToken) error {
+	var code *domain.OAuthCode
+	for _, c := range f.codes {
+		if c.ID == codeID {
+			code = c
+		}
+	}
+	if code == nil {
+		return &domain.NotFoundError{Kind: "oauth code", ID: codeID}
+	}
+	g.ID = f.id()
+	cp := *g
+	cp.Scopes = append([]domain.APIKeyScope(nil), g.Scopes...)
+	f.grants = append(f.grants, &cp)
+	grantID := g.ID
+	code.GrantID = &grantID
+	f.storeTokens(g.ID, tokens)
+	return nil
+}
+
+func (f *fakeOAuthStore) storeTokens(grantID int64, tokens []*domain.OAuthToken) {
+	for _, t := range tokens {
+		t.ID = f.id()
+		t.GrantID = grantID
+		cp := *t
+		f.tokens = append(f.tokens, &cp)
+	}
+}
+
+func (f *fakeOAuthStore) TokenByHash(_ context.Context, hash string) (*domain.OAuthToken, error) {
+	for _, t := range f.tokens {
+		if t.TokenHash == hash {
+			cp := *t
+			return &cp, nil
+		}
+	}
+	return nil, &domain.NotFoundError{Kind: "oauth token", ID: hash}
+}
+
+// grant answers the stored grant with its client name joined in, as the
+// adapter's join does.
+func (f *fakeOAuthStore) grant(g *domain.OAuthGrant) domain.OAuthGrant {
+	cp := *g
+	cp.Scopes = append([]domain.APIKeyScope(nil), g.Scopes...)
+	for _, c := range f.clients {
+		if c.ID == g.ClientID {
+			cp.ClientName = c.Name
+		}
+	}
+	return cp
+}
+
+func (f *fakeOAuthStore) GrantByID(_ context.Context, id int64) (*domain.OAuthGrant, error) {
+	for _, g := range f.grants {
+		if g.ID == id {
+			cp := f.grant(g)
+			return &cp, nil
+		}
+	}
+	return nil, &domain.NotFoundError{Kind: "oauth grant", ID: id}
+}
+
+func (f *fakeOAuthStore) RotateRefreshToken(_ context.Context, tokenID int64, at time.Time, tokens ...*domain.OAuthToken) error {
+	var spent *domain.OAuthToken
+	for _, t := range f.tokens {
+		if t.ID == tokenID {
+			spent = t
+		}
+	}
+	if spent == nil || spent.Kind != domain.OAuthTokenRefresh || spent.UsedAt != nil {
+		if spent != nil {
+			f.revokeByTkt(spent.GrantID, at)
+		}
+		return application.ErrOAuthRefreshReused
+	}
+	used := at
+	spent.UsedAt = &used
+	kept := f.tokens[:0:0]
+	for _, t := range f.tokens {
+		if t.GrantID == spent.GrantID && t.ExpiresAt.Before(at) {
+			continue
+		}
+		kept = append(kept, t)
+	}
+	f.tokens = kept
+	f.storeTokens(spent.GrantID, tokens)
+	return nil
+}
+
+func (f *fakeOAuthStore) TouchGrant(_ context.Context, id int64, at time.Time) error {
+	for _, g := range f.grants {
+		if g.ID == id {
+			touched := at
+			g.LastUsedAt = &touched
+		}
+	}
+	f.touches++
+	return nil
+}
+
+func (f *fakeOAuthStore) ListLiveGrants(_ context.Context, userID int64, now time.Time) ([]domain.OAuthGrant, error) {
+	var out []domain.OAuthGrant
+	for _, g := range f.grants {
+		if g.UserID != userID || g.RevokedAt != nil {
+			continue
+		}
+		for _, t := range f.tokens {
+			if t.GrantID == g.ID && t.Kind == domain.OAuthTokenRefresh && t.UsedAt == nil && t.ExpiresAt.After(now) {
+				out = append(out, f.grant(g))
+				break
+			}
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID > out[j].ID
+	})
+	return out, nil
+}
+
+func (f *fakeOAuthStore) RevokeGrant(_ context.Context, id, userID int64, at time.Time) error {
+	for _, g := range f.grants {
+		if g.ID == id && g.UserID == userID && g.RevokedAt == nil {
+			revoked, by := at, userID
+			g.RevokedAt, g.RevokedByUserID = &revoked, &by
+			return nil
+		}
+	}
+	return &domain.NotFoundError{Kind: "oauth grant", ID: id}
+}
+
+// fakePublicURLSettings answers the email settings the OAuth service reads its
+// public URL from (BaseURL); nothing else of the settings is modeled.
+type fakePublicURLSettings struct{ baseURL string }
+
+func (f *fakePublicURLSettings) GetEmailSettings(_ context.Context) (application.EmailSettings, error) {
+	return application.EmailSettings{BaseURL: f.baseURL}, nil
+}
+
+func (f *fakePublicURLSettings) SetEmailSettings(_ context.Context, s application.EmailSettings) error {
+	f.baseURL = s.BaseURL
+	return nil
+}

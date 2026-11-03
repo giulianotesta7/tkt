@@ -17,6 +17,8 @@ Authorization: Bearer tkt_<id>_<secret>
 
 Use the complete token shown when the key was created. The API authenticates with
 Bearer tokens, not browser cookies; it does not use browser sessions or CSRF tokens.
+OAuth access tokens issued to MCP clients work only on `/mcp` and get 401 here; see
+[MCP server](mcp.md).
 Success responses use `application/json` and `Cache-Control: no-store`.
 POST bodies use `Content-Type: application/json`. Unknown body fields, malformed JSON,
 and multiple JSON values are rejected with 400; an unsupported content type gets 415.

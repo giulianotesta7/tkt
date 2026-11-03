@@ -3,6 +3,7 @@ package httpadapter
 import (
 	"context"
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -501,4 +502,130 @@ func cookieValue(t *testing.T, rec *httptest.ResponseRecorder, name string) stri
 		}
 	}
 	return ""
+}
+
+// authorizeReturn is a return path shaped like the OAuth consent request the
+// session gate sends to /login (issue #493, S5).
+const authorizeReturn = "/oauth/authorize?client_id=x&state=y"
+
+// loginFormWithNext is a login submission carrying the hidden return path.
+func loginFormWithNext(email, password, next string) url.Values {
+	form := authForm(email, password)
+	form.Set("next", next)
+	return form
+}
+
+// TestLoginFollowsASafeNext proves a successful password login lands on the
+// return path it carried (issue #493, S5), and that an unsafe one is dropped
+// for /tickets, still signing the person in.
+func TestLoginFollowsASafeNext(t *testing.T) {
+	cases := []struct {
+		name string
+		next string
+		want string
+	}{
+		{"local return path", authorizeReturn, authorizeReturn},
+		{"absolute URL", "https://evil.example/", "/tickets"},
+		{"scheme-relative URL", "//evil.example", "/tickets"},
+		{"backslash", "/\\evil", "/tickets"},
+		{"javascript scheme", "javascript:alert(1)", "/tickets"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
+
+			rec := h.postFormAs(t, "/login", loginFormWithNext("ana@example.com", "s3cret-pass-12", tc.next), "")
+
+			wantRedirect(t, rec, http.StatusSeeOther, tc.want)
+			if cookieValue(t, rec, sessionCookie) == "" {
+				t.Error("a successful login must issue the session cookie")
+			}
+		})
+	}
+}
+
+// TestLoginFailureKeepsTheSafeNext proves a failed attempt re-renders the form
+// with the same hidden return path, so the retry still lands on it, and never
+// renders an unsafe one.
+func TestLoginFailureKeepsTheSafeNext(t *testing.T) {
+	h := newHarness(t)
+	h.createUser(t, "Ana", "ana@example.com", "s3cret-pass-12")
+
+	rec := h.postFormAs(t, "/login", loginFormWithNext("ana@example.com", "wrong", authorizeReturn), "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	if got := hiddenNext(t, rec.Body.String()); got != authorizeReturn {
+		t.Errorf("re-rendered next = %q, want %q", got, authorizeReturn)
+	}
+
+	unsafe := h.postFormAs(t, "/login", loginFormWithNext("ana@example.com", "wrong", "https://evil.example/"), "")
+	if strings.Contains(unsafe.Body.String(), `name="next"`) || strings.Contains(unsafe.Body.String(), "evil.example") {
+		t.Errorf("an unsafe next must never be rendered, got: %.2000s", unsafe.Body.String())
+	}
+}
+
+// TestLoginPageCarriesASafeNext proves the sign-in page keeps the return path
+// as a hidden form field and on every company sign-in start link, and renders
+// neither for an unsafe or absent next (issue #493, S5).
+func TestLoginPageCarriesASafeNext(t *testing.T) {
+	h := newHarness(t)
+	companySignInStore(t, h, companySignInIn(application.NewAccountsRequester))
+
+	rec := doRequest(h.mux, h.mw, http.MethodGet, "/login?next="+url.QueryEscape(authorizeReturn), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /login = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if got := hiddenNext(t, body); got != authorizeReturn {
+		t.Errorf("hidden next = %q, want %q", got, authorizeReturn)
+	}
+	for _, provider := range []string{"google", "microsoft"} {
+		if got := startLinkNext(t, body, provider); got != authorizeReturn {
+			t.Errorf("%s start link next = %q, want %q", provider, got, authorizeReturn)
+		}
+	}
+
+	for _, target := range []string{"/login", "/login?next=" + url.QueryEscape("https://evil.example/")} {
+		plain := doRequest(h.mux, h.mw, http.MethodGet, target, nil).Body.String()
+		if strings.Contains(plain, `name="next"`) || strings.Contains(plain, "evil.example") {
+			t.Errorf("GET %s must render no next, got: %.2000s", target, plain)
+		}
+		for _, want := range []string{`href="/auth/google/start"`, `href="/auth/microsoft/start"`} {
+			if !strings.Contains(plain, want) {
+				t.Errorf("GET %s must keep the plain start link %s", target, want)
+			}
+		}
+	}
+}
+
+// hiddenNext answers the value of the login form's hidden next field, HTML
+// unescaped, or "" when the page renders none.
+func hiddenNext(t *testing.T, body string) string {
+	t.Helper()
+	const marker = `<input type="hidden" name="next" value="`
+	i := strings.Index(body, marker)
+	if i < 0 {
+		return ""
+	}
+	rest := body[i+len(marker):]
+	return html.UnescapeString(rest[:strings.Index(rest, `"`)])
+}
+
+// startLinkNext answers the next a company sign-in start link carries, decoded
+// from its query, or "" when the link carries none.
+func startLinkNext(t *testing.T, body, provider string) string {
+	t.Helper()
+	marker := `href="/auth/` + provider + `/start?`
+	i := strings.Index(body, marker)
+	if i < 0 {
+		return ""
+	}
+	rest := body[i+len(`href="`):]
+	link, err := url.Parse(html.UnescapeString(rest[:strings.Index(rest, `"`)]))
+	if err != nil {
+		t.Fatalf("parse %s start link: %v", provider, err)
+	}
+	return link.Query().Get("next")
 }

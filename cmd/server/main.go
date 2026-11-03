@@ -221,9 +221,17 @@ func main() {
 	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
 	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
-	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithInstance(application.NewInstanceSettingsService(store.InstanceSettingsStore(), clock)).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).WithAPIAccess(apiAccessSvc).Register(mux)
+	// Issue #493: the OAuth service also backs the MCP switch in Settings → API
+	// and Connected apps in Preferences.
+	oauthSvc := application.NewOAuthService(store.OAuthStore(), store.UserStore(), store.EmailSettingsStore(), clock, nil)
+	httpadapter.NewSettingsHandlers(settingsSvc, slaSvc, store.SLAStore(), store.SettingsStore(), renderer).WithInstance(application.NewInstanceSettingsService(store.InstanceSettingsStore(), clock)).WithEmail(emailSettingsSvc).WithOrganization(organizationSvc).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).WithAPIAccess(apiAccessSvc).WithOAuth(oauthSvc, store.EmailSettingsStore()).Register(mux)
 	httpadapter.NewCategorySLAHandlers(catSvc, slaSvc, store.SLAStore(), renderer).Register(mux)
-	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(userSvc, passwordSettingsSvc).Register(mux)
+	httpadapter.NewPreferencesHandlers(preferencesSvc, renderer).WithPasswordChange(userSvc, passwordSettingsSvc).WithOAuth(oauthSvc).Register(mux)
+	// Issue #493: tkt is the OAuth authorization server for its own /mcp
+	// endpoint. The consent page runs behind the session middleware; the
+	// metadata, registration and token endpoints are branched before it.
+	oauthHandlers := httpadapter.NewOAuthHandlers(oauthSvc, renderer, clock)
+	oauthHandlers.Register(mux)
 	// Issue #419: the bell and the full feed render the account a pending notice
 	// names from the stored account and its identities, never from a guessed
 	// method or a fabricated ticket.
@@ -242,12 +250,16 @@ func main() {
 	// that reaches the mux is bounded, /healthz and /static included.
 	sessionHandler := httpadapter.NewSessionMiddleware(store.SessionStore(), store.UserStore(), store.SettingsStore()).WithSidebarPreferences(store.SidebarPreferences()).WithThemePreferences(store.ThemePreferences()).WithLanguagePreferences(store.PreferencesStore().(application.LanguagePreferencesStore)).WithOrganization(store.OrganizationStore()).Wrap(httpadapter.NewBodyLimitMiddleware().Wrap(mux))
 
+	apiHandlers := httpadapter.NewAPIHandlers(apiAccessSvc, clock).
+		WithReads(httpadapter.APIReadServices{Tickets: ticketSvc, Search: searchSvc, Categories: catSvc, Users: userSvc, Catalog: catalogSvc, Workflows: workflowSvc, Versions: store.WorkflowVersionStore(), Runs: store.WorkflowRunStore()}).
+		WithWrites(httpadapter.APIWriteServices{Comments: commentSvc, Runner: application.NewWorkflowRunner(clock).WithFollowers(followSvc), Workflow: store.WorkflowUnitOfWork()})
+	// Issue #493: /mcp runs its tools through the same API handlers, as the
+	// person whose OAuth token it verified.
+	mcpHandlers := httpadapter.NewMCPHandlers(oauthSvc, apiHandlers)
+
 	srv := &http.Server{
-		Addr: listen,
-		Handler: httpadapter.NewAPIHandlers(apiAccessSvc, clock).
-			WithReads(httpadapter.APIReadServices{Tickets: ticketSvc, Search: searchSvc, Categories: catSvc, Users: userSvc, Catalog: catalogSvc, Workflows: workflowSvc, Versions: store.WorkflowVersionStore(), Runs: store.WorkflowRunStore()}).
-			WithWrites(httpadapter.APIWriteServices{Comments: commentSvc, Runner: application.NewWorkflowRunner(clock).WithFollowers(followSvc), Workflow: store.WorkflowUnitOfWork()}).
-			Branch(sessionHandler),
+		Addr:              listen,
+		Handler:           mcpHandlers.Branch(apiHandlers.Branch(oauthHandlers.Branch(sessionHandler))),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

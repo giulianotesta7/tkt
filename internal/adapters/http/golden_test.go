@@ -2218,6 +2218,7 @@ func fixtureSettingsAPIData() settingsAPIData {
 		NewToken:            "tkt_0123456789ab_" + strings.Repeat("cd", 32),
 		NewTokenFor:         "Zabbix",
 		ScopeOptions:        apiScopeOptions,
+		MCP:                 settingsMCPData{Shown: true, Enabled: true, CanToggle: true, URL: "https://tkt.example.com/mcp", CanSetPublicURL: true},
 		ServiceUsers: []apiServiceUserRow{
 			{ID: 7, Name: "Triage bot", RoleLabel: "label.role.agent", Active: true, CreatedOn: "2026-10-01", CanInternal: true, Keys: []apiKeyRow{
 				{ID: 2, Name: "Zabbix", PublicID: "0123456789ab", Scopes: []string{"tickets:read", "comments:internal"}, Status: "settings.api.key.active", Live: true, CreatedOn: "2026-10-29", ExpiresOn: "2027-01-01"},
@@ -2230,4 +2231,18 @@ func fixtureSettingsAPIData() settingsAPIData {
 
 func TestGoldenSettingsAPI(t *testing.T) {
 	goldenFullPage(t, "settings_api", renderGolden(t, "settings_api", "", fixtureSettingsAPIData(), false))
+}
+
+// TestGoldenSettingsAPIMCPStates freezes the MCP clients section (issue #493,
+// S2) in its other two states: an administrator reading the switch, and root
+// before the public URL is set, right after a refused attempt to turn it on.
+func TestGoldenSettingsAPIMCPStates(t *testing.T) {
+	admin := fixtureSettingsAPIData()
+	admin.CanToggle = false
+	admin.MCP = settingsMCPData{Shown: true, Enabled: true, URL: "https://tkt.example.com/mcp"}
+	goldenFile(t, "settings_api_mcp_admin", mcpSection(t, renderGolden(t, "settings_api", "", admin, false)))
+
+	noURL := fixtureSettingsAPIData()
+	noURL.MCP = settingsMCPData{Shown: true, CanToggle: true, CanSetPublicURL: true, Error: "MCP clients need the public URL"}
+	goldenFile(t, "settings_api_mcp_no_url", mcpSection(t, renderGolden(t, "settings_api", "", noURL, false)))
 }

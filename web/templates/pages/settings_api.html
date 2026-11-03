@@ -32,7 +32,30 @@
 {{end}}        </div>
       </div>
     </section>
-    <section class="settings-group">
+{{if .MCP.Shown}}    <section class="settings-group" aria-labelledby="mcp-title">
+      <h2 class="settings-section-title" id="mcp-title">{{t "settings.api.mcp.title"}}</h2>
+{{if .MCP.Error}}      <div class="error-banner" role="alert" id="mcp-error">{{.MCP.Error}}</div>
+{{end}}      <div class="settings-row">
+        <div><h3>{{t "settings.api.mcp.switch"}}</h3><p>{{t "settings.api.mcp.help"}}</p></div>
+        <div>
+{{if .MCP.CanToggle}}          <form method="post" action="/settings/api/mcp">
+            <input type="hidden" name="mcp_enabled" value="{{if .MCP.Enabled}}0{{else}}1{{end}}">
+            <p class="api-access-state">{{if .MCP.Enabled}}{{t "settings.api.mcp.on"}}{{else}}{{t "settings.api.mcp.off"}}{{end}}</p>
+            <button class="btn{{if not .MCP.Enabled}} primary{{end}}" type="submit"{{if .MCP.Error}} aria-describedby="mcp-error"{{end}}>{{if .MCP.Enabled}}{{t "settings.api.mcp.turn_off"}}{{else}}{{t "settings.api.mcp.turn_on"}}{{end}}</button>
+          </form>
+{{else}}          <p class="api-access-state">{{if .MCP.Enabled}}{{t "settings.api.mcp.on"}}{{else}}{{t "settings.api.mcp.off"}}{{end}}</p>
+          <p class="help">{{t "settings.api.mcp.root_only"}}</p>
+{{end}}        </div>
+      </div>
+      <div class="settings-row">
+        <div><h3>{{t "settings.api.mcp.url.title"}}</h3><p>{{t "settings.api.mcp.url.help"}}</p></div>
+        <div>
+{{if .MCP.URL}}          <input class="api-token-value" type="text" readonly value="{{.MCP.URL}}" aria-label="{{t "settings.api.mcp.url.label"}}" spellcheck="false" autocomplete="off">
+{{else}}          <p class="help">{{t "settings.api.mcp.url.missing"}}{{if .MCP.CanSetPublicURL}} <a href="/settings/instance">{{t "settings.api.mcp.url.set"}}</a>{{end}}</p>
+{{end}}        </div>
+      </div>
+    </section>
+{{end}}    <section class="settings-group">
       <div class="api-service-heading"><div><h2 class="settings-section-title">{{t "settings.api.service_users.title"}}</h2><p>{{t "settings.api.service_users.help"}}</p></div>
       <details class="api-create-user"{{if .CreateUserError}} open{{end}}><summary class="btn primary">{{t "settings.api.service_users.create"}}</summary>
       <form class="api-create-user-form" method="post" action="/settings/api/service-users">

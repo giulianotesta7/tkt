@@ -1,0 +1,34 @@
+{{define "title"}}{{tf "base.title.screen" (t "oauth.consent.title") (brandHelpDesk .Brand)}}{{end}}
+{{define "content"}}
+<div class="preferences-screen">
+  <div class="command-header">
+    <div>
+      <h1 class="command-title">{{tf "oauth.consent.heading" .ClientName}}</h1>
+    </div>
+  </div>
+  <p class="preferences-note">{{tf "oauth.consent.intro" .CurrentUser.Name}}</p>
+  <div class="preferences-sections">
+    <section class="preferences-section" aria-labelledby="oauth-consent-scopes">
+      <div class="preferences-section-head">
+        <h2 id="oauth-consent-scopes">{{t "oauth.consent.scopes.title"}}</h2>
+        <p>{{t "oauth.consent.scopes.help"}}</p>
+      </div>
+      <ul class="oauth-scopes">
+{{range .Scopes}}        <li>{{t .Label}} <code>{{.Scope}}</code></li>
+{{end}}      </ul>
+    </section>
+    <section class="preferences-section" aria-labelledby="oauth-consent-return">
+      <div class="preferences-section-head">
+        <h2 id="oauth-consent-return">{{t "oauth.consent.return.title"}}</h2>
+        <p>{{t "oauth.consent.return.help"}}</p>
+      </div>
+      <p class="oauth-return"><strong>{{.RedirectHost}}</strong></p>
+    </section>
+  </div>
+  <form class="preferences-actions" method="post" action="/oauth/authorize">
+{{range .Fields}}    <input type="hidden" name="{{.Name}}" value="{{.Value}}">
+{{end}}    <button class="btn primary" type="submit" name="decision" value="approve">{{t "oauth.consent.approve"}}</button>
+    <button class="btn" type="submit" name="decision" value="deny">{{t "oauth.consent.deny"}}</button>
+  </form>
+</div>
+{{end}}
