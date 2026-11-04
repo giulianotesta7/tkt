@@ -20,4 +20,5 @@
 
 ## Related issue
 
+<!-- Replace the placeholder with an existing issue number in this repository. -->
 Closes #

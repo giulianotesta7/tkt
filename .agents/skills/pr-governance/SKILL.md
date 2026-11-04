@@ -64,8 +64,9 @@ Point at the sources instead of repeating them, because duplicated rules drift:
 - `.agents/skills/e2e-playwright/SKILL.md` — browser regression coverage
 - `.agents/skills/issue-governance/SKILL.md` — issue requirement and label taxonomy
 
-There is no shellcheck step, no scripts directory, and no PR-validation workflow
-in this repository. Never report a check as missing when it was never configured.
+The PR issue check in `.github/workflows/pr-issue.yml` validates a standalone
+`Closes #<number>` line against an existing local issue. It does not require an approval
+label or assignee. Never report a check as missing when it was never configured.
 
 ## Commit Format
 
