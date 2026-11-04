@@ -113,8 +113,8 @@ go test ./... -race -count=1 -timeout 80m
 
 The workflows are the source of truth for every check:
 `.github/workflows/quality.yml`, `.github/workflows/coverage.yml`,
-`.github/workflows/security.yml`, `.github/workflows/e2e.yml`, and
-`.github/workflows/container.yml`.
+`.github/workflows/security.yml`, `.github/workflows/e2e.yml`,
+`.github/workflows/container.yml`, and `.github/workflows/pr-issue.yml`.
 
 ## Frontend, container, and documentation changes
 
@@ -134,9 +134,10 @@ The workflows are the source of truth for every check:
 
 ## Pull requests
 
-A pull request links its issue with `Closes #<number>` and follows
-[.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md). Labels are optional;
-the issue carries the classification. The title becomes the squash-merge commit message, so
+A pull request links an existing issue in this repository on a standalone `Closes #<number>`
+line and follows [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md).
+The PR issue check validates the link; issue approval labels and assignees are not required.
+Labels on the pull request are optional; the issue carries the classification. The title becomes the squash-merge commit message, so
 write it as a conventional commit with a scope, for example `docs(readme): add quick start`.
 
 Every required check has to pass before merge. The definitions and the branch rules are in
