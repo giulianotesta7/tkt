@@ -24,7 +24,7 @@ in it.
 
 Tags: a `vX.Y.Z` tag publishes `ghcr.io/giulianotesta7/tkt` with the full version, the minor
 version and `latest`. Nothing rolls from the main branch, so `latest` moves only on a release,
-and until a tag exists you build the image from a checkout.
+so the recommended installation uses the published image.
 
 ### Build identity
 
@@ -46,7 +46,8 @@ Source archives without version or VCS metadata display `dev`.
 ### With Compose
 
 ```console
-docker compose up -d --build
+docker compose pull
+docker compose up -d --no-build
 ```
 
 It publishes `8080` on the host, mounts the Compose volume `tkt-data` at `/data`, and sets the
@@ -59,17 +60,23 @@ The mapping `8080:8080` publishes on every interface, which suits a local trial.
 reverse proxy, change it to `127.0.0.1:8080:8080` so the plain-HTTP port is reachable only from
 the proxy.
 
+To build from the checkout instead of using GHCR:
+
+```console
+docker compose up -d --build --pull never
+```
+
 ### With `docker run`
 
 ```console
 docker volume create tkt-data
-docker build -t tkt:local .
+docker pull ghcr.io/giulianotesta7/tkt:latest
 docker run -d \
   --name tkt \
   --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
   -v tkt-data:/data \
-  tkt:local
+  ghcr.io/giulianotesta7/tkt:latest
 ```
 
 ## Check that it is running
