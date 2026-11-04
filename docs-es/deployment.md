@@ -26,7 +26,7 @@ comandos en él.
 
 Tags: un tag `vX.Y.Z` publica `ghcr.io/giulianotesta7/tkt` con la versión completa, la versión
 menor y `latest`. Nada se publica desde la rama main, así que `latest` solo avanza con una
-versión, y mientras no exista un tag compilás la imagen desde un checkout.
+versión. La instalación recomendada usa la imagen publicada.
 
 ### Identidad de la compilación
 
@@ -49,7 +49,8 @@ Un archivo fuente sin versión ni metadatos VCS muestra `dev`.
 ### Con Compose
 
 ```console
-docker compose up -d --build
+docker compose pull
+docker compose up -d --no-build
 ```
 
 Publica `8080` en el host, monta el volumen de Compose `tkt-data` en `/data` y deja la política
@@ -63,17 +64,23 @@ El mapeo `8080:8080` publica en todas las interfaces, cómodo para una prueba lo
 proxy inverso, cambialo a `127.0.0.1:8080:8080` para que el puerto HTTP plano sea alcanzable
 solo desde el proxy.
 
+Para compilar desde el checkout en lugar de usar GHCR:
+
+```console
+docker compose up -d --build --pull never
+```
+
 ### Con `docker run`
 
 ```console
 docker volume create tkt-data
-docker build -t tkt:local .
+docker pull ghcr.io/giulianotesta7/tkt:latest
 docker run -d \
   --name tkt \
   --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
   -v tkt-data:/data \
-  tkt:local
+  ghcr.io/giulianotesta7/tkt:latest
 ```
 
 ## Comprobar que corre

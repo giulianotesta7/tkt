@@ -69,10 +69,12 @@ Local measurements, not performance guarantees.
 ```console
 git clone https://github.com/giulianotesta7/tkt.git
 cd tkt
-docker compose up -d --build
+docker compose pull
+docker compose up -d --no-build
 ```
 
-Compose builds the image from this checkout.
+Compose downloads the published GHCR image; no local build is needed. To build from this
+checkout instead, run `docker compose up -d --build --pull never`.
 
 ### Build from source
 
