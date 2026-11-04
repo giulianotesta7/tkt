@@ -1,38 +1,28 @@
-# Project Agent Instructions
+# tkt — Agent Skills Index
 
-## Skills index
+Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md) for the issue-first workflow.
 
-Load relevant skills BEFORE writing code. Skills encode project rules that are cheaper to respect than to fix later. Loading a skill after the change is designed means reworking the change.
+Before writing code or starting a change, load the relevant skills below.
 
-### How to use
+## How to Use
 
-1. Before starting a change, read the local skills below and load every skill whose Activation Contract matches the planned work.
-2. Follow the loaded skill's activation contract: some skills activate for any change, others only for template, E2E, or spec-impacting work.
-3. Skills under `.agents/skills/` are authoritative for this repository. When one of them conflicts with a user-scope or package-installed skill, the project skill wins: apply it and do not reconcile the two.
-4. When two project skills conflict and you cannot honor both, stop and surface the conflict instead of picking one silently.
-5. Keep skills current: when a new rule becomes authoritative, update the skill file and this index in the same change.
+1. Match the planned work against the triggers and load every applicable skill.
+2. Read each skill file; its Activation Contract determines whether it applies.
+3. Follow the rules of all applicable skills. Multiple skills may apply to one change.
+4. Repository-local skills take precedence over conflicting user-scope or package-installed skills. If local skills conflict and both cannot be honored, stop and surface the conflict.
 
-### Local skills
+Keep skills and this index current: when a new rule becomes authoritative, update the skill file and this index in the same change.
 
-Project skills live in `.agents/skills/` and are named for the suite or layer they govern, not for this repository. Name a skill for what it proves (`go-tests`, `e2e-playwright`), not for the stack alone.
+## Skills
 
-| Skill | Path |
-| --- | --- |
-| `issue-governance` | `.agents/skills/issue-governance/SKILL.md` |
-| `pr-governance` | `.agents/skills/pr-governance/SKILL.md` |
-| `design-system` — approved UI patterns, theme tokens, accessibility, and measured checks | `.agents/skills/design-system/SKILL.md` |
-| `worktree-isolation` | `.agents/skills/worktree-isolation/SKILL.md` |
-| `e2e-playwright` | `.agents/skills/e2e-playwright/SKILL.md` |
-| `go-tests` | `.agents/skills/go-tests/SKILL.md` |
-| `container-governance` | `.agents/skills/container-governance/SKILL.md` |
-| `engram-governance` | `.agents/skills/engram-governance/SKILL.md` |
-| `release-notes` | `.agents/skills/release-notes/SKILL.md` |
-
-Load the skill file. Its Activation Contract is authoritative for when the skill applies.
-
-### Workflow gates (issue-first)
-
-1. Every change (feature, bug, docs, chore) needs a GitHub issue BEFORE implementation starts. No issue, no work. This is the only blocking gate.
-2. Creating the issue authorizes it. There is no approval round trip: this repository has a single maintainer, so `status:approved` never gates and never blocks implementation.
-3. Labels come only from the canonical taxonomy in `issue-governance`; never invent new ones. Apply them best-effort with the closest fit and note the choice; a missing or ambiguous label never blocks or delays work.
-4. When work is delivered, PRs link back to the governing issue.
+| Skill | Trigger | Path |
+| --- | --- | --- |
+| `issue-governance` | Starting a change; creating, labeling, or triaging issues | `.agents/skills/issue-governance/SKILL.md` |
+| `pr-governance` | Preparing, creating, or reviewing a pull request | `.agents/skills/pr-governance/SKILL.md` |
+| `design-system` | Templates, styling, layout, accessibility, or visible HTMX interactions | `.agents/skills/design-system/SKILL.md` |
+| `worktree-isolation` | Before the first write of any change | `.agents/skills/worktree-isolation/SKILL.md` |
+| `e2e-playwright` | Visible changes, critical journeys, browser-observable bugs, or E2E coverage | `.agents/skills/e2e-playwright/SKILL.md` |
+| `go-tests` | Go tests or tested packages, domain rules, authorization, migrations, golden fixtures, or Go CI gates | `.agents/skills/go-tests/SKILL.md` |
+| `container-governance` | Container image, compose, runtime contract, container CI, or image publishing | `.agents/skills/container-governance/SKILL.md` |
+| `engram-governance` | Behavior changes, governed work, decisions, discoveries, memory recall, or session closure | `.agents/skills/engram-governance/SKILL.md` |
+| `release-notes` | Drafting or revising release text | `.agents/skills/release-notes/SKILL.md` |
