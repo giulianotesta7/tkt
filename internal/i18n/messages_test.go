@@ -635,7 +635,6 @@ var keylessValidationErrorAllowlist = map[string]string{
 	"internal/adapters/sqlite/workflow_uow.go|create plan missing ticket":                  "store recheck: the caller always supplies a planned ticket",
 	"internal/adapters/sqlite/workflow_uow.go|assignment target must be an agent or above": "store recheck after the service already validated the assignment target",
 	"internal/application/catalog_service.go|category is required":                         "programming guard: no request hands UpdateCategoryFor a nil category",
-	"internal/application/catalog_service.go|identifier is required":                       "internal id guard for catalog ids, never a user-authored value",
 	"internal/application/workflow_runner.go|workflow definition is empty":                 "definition guard: a published workflow always has at least one step",
 	"internal/application/workflow_runner.go|assign_to_desk requires config":               "definition guard: publish rejects an assign_to_desk step without config",
 	"internal/application/workflow_runner.go|unknown strategy":                             "definition guard: publish rejects an unknown assignment strategy",
