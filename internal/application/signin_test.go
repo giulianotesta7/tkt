@@ -137,6 +137,50 @@ func TestSigninRemoveBackgroundResetsTheStyle(t *testing.T) {
 	}
 }
 
+// TestSigninUpdateWithoutAFileCannotResurrectARemovedImage pins issue #388: a
+// save that carries no file reads the configuration to validate it, then writes.
+// A removal another administrator commits between those two steps must survive:
+// the write keeps whatever image the store holds at that moment instead of
+// writing back the stale bytes the read saw.
+func TestSigninUpdateWithoutAFileCannotResurrectARemovedImage(t *testing.T) {
+	svc, store := newSigninServiceFixture(t)
+	admin := signinActor(domain.RoleAdmin)
+	if err := svc.UpdateSignin(context.Background(), admin, application.SigninInput{
+		Panel:      domain.SigninPanel{Title: "Bienvenido", Background: domain.SigninBackgroundImage},
+		Background: signinImageBytes(domain.SigninBackgroundPNG),
+	}); err != nil {
+		t.Fatalf("seed image: %v", err)
+	}
+
+	// The concurrent removal lands after UpdateSignin's read and before its
+	// write.
+	store.beforeWrite = func() {
+		store.beforeWrite = nil
+		if err := svc.RemoveBackground(context.Background(), signinActor(domain.RoleRoot)); err != nil {
+			t.Fatalf("concurrent RemoveBackground: %v", err)
+		}
+	}
+	if err := svc.UpdateSignin(context.Background(), admin, application.SigninInput{
+		Panel: domain.SigninPanel{Title: "Changed", Background: domain.SigninBackgroundImage},
+	}); err != nil {
+		t.Fatalf("UpdateSignin without a file: %v", err)
+	}
+
+	got, err := svc.GetSigninConfiguration(context.Background())
+	if err != nil {
+		t.Fatalf("GetSigninConfiguration: %v", err)
+	}
+	if got.HasBackground() {
+		t.Errorf("the save restored the removed image: %d bytes", len(got.Background))
+	}
+	if got.Panel.Background != domain.SigninBackgroundDark {
+		t.Errorf("background style = %q, want dark: no image remains", got.Panel.Background)
+	}
+	if got.Panel.Title != "Changed" {
+		t.Errorf("title = %q, want the text of the later save", got.Panel.Title)
+	}
+}
+
 func TestSigninUpdateRejectionsStoreNothing(t *testing.T) {
 	cases := []struct {
 		name string

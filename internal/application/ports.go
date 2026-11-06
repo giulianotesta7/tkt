@@ -1653,6 +1653,13 @@ type SigninStore interface {
 	// transaction, so a submission can never be half applied. A nil background
 	// means the instance holds no background image and deletes the stored row.
 	SetSignin(ctx context.Context, panel domain.SigninPanel, background []byte) error
+	// SetSigninPanel writes the panel's text facts and KEEPS whatever background
+	// image the store holds when its transaction runs (issue #388). A save with
+	// no file uses it instead of writing back the image its earlier read saw, so
+	// a removal or replacement committed in between is never undone. An "image"
+	// style with no stored image is written as the dark surface, the state
+	// RemoveBackground leaves.
+	SetSigninPanel(ctx context.Context, panel domain.SigninPanel) error
 }
 
 // PreferencesStore persists per-user preferences (issue #210) in the

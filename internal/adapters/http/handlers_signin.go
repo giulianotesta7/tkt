@@ -329,7 +329,9 @@ func (h *SettingsHandlers) updateSignin(w http.ResponseWriter, r *http.Request) 
 	submitted := signinValuesFromForm(r)
 	image, err := readUpload(r, signinBackgroundField, domain.MaxSigninBackgroundBytes)
 	if err != nil {
-		httpError(w, r, "error.bad_request", http.StatusBadRequest)
+		// The request itself was broken, so it stays a 400, but it renders the
+		// section's own rejection and keeps the typed text (issue #388).
+		h.renderSigninRejection(w, r, http.StatusBadRequest, i18n.T(requestLocale(r), "error.signin_image_unreadable"))
 		return
 	}
 	if len(image) > domain.MaxSigninBackgroundBytes {
@@ -355,7 +357,7 @@ func (h *SettingsHandlers) updateSignin(w http.ResponseWriter, r *http.Request) 
 }
 
 // renderSigninRejection re-renders the section with one catalogue message for a
-// refusal the handler itself made (an unparseable or oversized image), keeping
+// refusal the handler itself made (an unreadable or oversized image), keeping
 // the text the administrator typed.
 func (h *SettingsHandlers) renderSigninRejection(w http.ResponseWriter, r *http.Request, status int, message string) {
 	submitted := signinValuesFromForm(r)
