@@ -59,7 +59,7 @@ func assertSuggestIndexExact(t *testing.T, s *Store, label string) {
 // departments, a desk losing its department, the store's
 // COALESCE(NULLIF(?,0),desk_id) no-op update, and a delete.
 func TestMigration0031IndexExactAcrossCatalogWrites(t *testing.T) {
-	s := newTestDB(t)
+	s := newTestDBThrough0043(t)
 	tech := seedCatalogDepartment(t, s, "Tecnología")
 	people := seedCatalogDepartment(t, s, "Personas")
 	d1 := seedCatalogDesk(t, s, "Service desk", tech)
@@ -94,7 +94,7 @@ func TestMigration0031IndexExactAcrossCatalogWrites(t *testing.T) {
 // TestMigration0031RefusedCatalogDeleteLeavesIndexIntact proves a delete the
 // foreign keys refuse cannot half-clean the index.
 func TestMigration0031RefusedCatalogDeleteLeavesIndexIntact(t *testing.T) {
-	s := newTestDB(t)
+	s := newTestDBThrough0043(t)
 	tech := seedCatalogDepartment(t, s, "Tecnología")
 	d1 := seedCatalogDesk(t, s, "Service desk", tech)
 	seedCatalogCategory(t, s, 100, "Printers", "printer problems", "impresora", d1)
@@ -124,9 +124,17 @@ func TestMigration0031LateNeighbourMigrations(t *testing.T) {
 	s.db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = s.db.Close() })
 
-	names, err := fs.Glob(migrationsFS, "migrations/*.sql")
+	all, err := fs.Glob(migrationsFS, "migrations/*.sql")
 	if err != nil {
 		t.Fatalf("glob: %v", err)
+	}
+	// The index this test checks is 0031's, which 0044 rebuilds (issue #484), so
+	// the set stops before 0044.
+	var names []string
+	for _, name := range all {
+		if name < "migrations/0044_category_suggest_folders.sql" {
+			names = append(names, name)
+		}
 	}
 	late, lateVersion := "", 0
 	for _, name := range names {
@@ -159,7 +167,7 @@ func TestMigration0031LateNeighbourMigrations(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT applied_at FROM schema_migrations WHERE version = 31`).Scan(&appliedAt); err != nil {
 		t.Fatalf("applied_at 31: %v", err)
 	}
-	if err := migrate(ctx, s.db, migrationsFS); err != nil {
+	if err := migrate(ctx, s.db, migrationsBefore(t, "0044_category_suggest_folders.sql", false)); err != nil {
 		t.Fatalf("late neighbour %s: %v", late, err)
 	}
 	var n int

@@ -1321,9 +1321,8 @@ type ticketFormData struct {
 	// facts the picker shows (Unavailable + Reason) so a native select can render
 	// an unrunnable category as a disabled option instead of offering it.
 	CategoryOffers []catalogCategoryEntry
-	// CategoryGroups is the same offer set grouped one entry per
-	// "Department › Desk" (issue #391, S3), which is the shape the picker's
-	// <optgroup> headings read.
+	// CategoryGroups is the same offer set grouped by folder path (issue #391,
+	// S3; issue #484), which is the shape the picker's <optgroup> headings read.
 	CategoryGroups []catalogCategoryGroup
 	// Selected is the category the request fixed when the catalog could resolve
 	// it. Two-step mode renders it read-only with a Change link; single-page mode
@@ -1470,31 +1469,49 @@ func offerRunnableCategories(in []domain.CatalogCategory, summary map[int64]appl
 }
 
 // createCatalogCard is one category card of the two-step service catalog
-// (issue #391, S4): the category's name, the desk that holds it as the caption,
-// and — for a published category that cannot run — the reason it is disabled.
+// (issue #391, S4): the category's name, its caption (the folder path,
+// issue #484) and — for a published category that cannot run — the
+// reason it is disabled.
 type createCatalogCard struct {
 	catalogCategoryEntry
-	// Hidden marks a card the server-side ?q search filtered out. It is
+	Caption string
+	// Hidden marks a search result the server-side ?q filtered out. It is
 	// rendered with the hidden attribute so the no-script path shows only the
 	// matches, while the browser applies exactly the same rule live.
 	Hidden bool
 }
 
-// createCatalogSection is one department of the catalog with its cards.
-type createCatalogSection struct {
-	ID     int64
-	Name   string
-	Hidden bool
-	Cards  []createCatalogCard
+// createCatalogFolderCard is one folder of the current level: where opening it
+// lands (pass-through folders are skipped, issue #484 S9) and how many
+// published categories lie below it.
+type createCatalogFolderCard struct {
+	ID    int64
+	Name  string
+	Count int
 }
 
-// catalogPageData is the two-step catalog payload.
+// catalogPathLink is one step of the catalog breadcrumb; the last is current.
+type catalogPathLink struct {
+	Name string
+	URL  string
+}
+
+// catalogPageData is the two-step catalog payload (issue #484, S7, S9, S11):
+// one folder level with its breadcrumb, and a flat list of every choosable
+// category with its path for search.
 type catalogPageData struct {
 	pageData
-	Query    string
-	Sections []createCatalogSection
+	Query   string
+	Crumbs  []catalogPathLink
+	BackURL string
+	Folders []createCatalogFolderCard
+	Cards   []createCatalogCard
+	// Results is every choosable category, shown instead of the level while a
+	// search is active.
+	Results   []createCatalogCard
+	Searching bool
 	// Suggestions is the "Suggested" group the catalog renders above the
-	// departments (issue #416, S2). It is empty when the engine is off, when the
+	// catalog (issue #416, S2). It is empty when the engine is off, when the
 	// requester typed nothing, and when no suggestion is confident (S3).
 	Suggestions []suggestionView
 	// SuggestionsEnabled turns the suggestion group, its live refresh and the
@@ -1502,21 +1519,23 @@ type catalogPageData struct {
 	// exactly what it rendered before the feature (S7).
 	SuggestionsEnabled bool
 	// NoMatch reports a query no card matches, so the page states that instead
-	// of rendering an empty catalog. A confident suggestion replaces it: the
-	// catalog below the Suggested group is the answer then (S3).
+	// of rendering an empty catalog. A confident suggestion replaces it.
 	NoMatch bool
+	// Empty reports a catalog with nothing to offer at all.
+	Empty bool
 }
 
 // catalogMatches is the ONE search rule the server and the browser apply
-// (issue #391, S4): a card matches when the query appears in the category, its
-// desk, or its department name. It is case-insensitive and trims the query, so
-// typing with a stray space never empties the catalog.
-func catalogMatches(query, category, desk, department string) bool {
+// (issue #391, S4; issue #484 S11): a card matches when the query appears in
+// any of its values — the category's name, description, or folders on its path.
+// It is case-insensitive and trims the query, so typing with a stray space
+// never empties the catalog.
+func catalogMatches(query string, values ...string) bool {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
 		return true
 	}
-	for _, value := range []string{category, desk, department} {
+	for _, value := range values {
 		if strings.Contains(strings.ToLower(value), q) {
 			return true
 		}
@@ -1524,58 +1543,129 @@ func catalogMatches(query, category, desk, department string) bool {
 	return false
 }
 
-// catalogSections groups the choosable categories into one section per
-// department, in catalog order (department, desk, category, as the projection
-// answers them), marking the cards and sections a query filters out.
-func catalogSections(offers []catalogCategoryEntry, query string) ([]createCatalogSection, bool) {
-	sections := make([]createCatalogSection, 0, 4)
-	index := make(map[int64]int, 4)
-	matches := false
-	for _, offer := range offers {
-		i, ok := index[offer.DepartmentID]
-		if !ok {
-			index[offer.DepartmentID] = len(sections)
-			sections = append(sections, createCatalogSection{ID: offer.DepartmentID, Name: offer.DepartmentName, Hidden: true})
-			i = len(sections) - 1
-		}
-		hit := catalogMatches(query, offer.Name, offer.DeskName, offer.DepartmentName)
-		section := &sections[i]
-		section.Cards = append(section.Cards, createCatalogCard{catalogCategoryEntry: offer, Hidden: !hit})
-		if hit {
-			section.Hidden = false
-			matches = true
-		}
+func catalogFolderURL(id int64) string {
+	if id == 0 {
+		return "/tickets/new"
 	}
-	return sections, matches
+	return "/tickets/new?folder=" + strconv.FormatInt(id, 10)
 }
 
-// renderCatalog renders the two-step service catalog (issue #391, S4): a search
-// box, then one section per department holding category cards. A card links to
-// the shared form with its category, and a published category that cannot run
-// stays visible, disabled, with its reason — the same rule the picker applies.
+// buildRequesterCatalog lays out the two-step catalog for folder (0 = top
+// level). A requester sees a folder only when a choosable category lies
+// somewhere below it (S7); a folder whose only visible child is one folder is
+// skipped, so opening it lands on the deepest folder of that chain (S9). An
+// unknown or hidden folder shows the top level.
+func buildRequesterCatalog(offers []catalogCategoryEntry, tree domain.CatalogTree, folder int64, query string) catalogPageData {
+	places := make([]*int64, 0, len(offers))
+	direct := map[int64]int{}
+	for _, offer := range offers {
+		places = append(places, offer.FolderID)
+		if offer.FolderID != nil {
+			direct[*offer.FolderID]++
+		}
+	}
+	visible := tree.VisibleFolders(places)
+	land := func(id int64) int64 {
+		return tree.Land(id, visible, func(f int64) bool { return direct[f] > 0 })
+	}
+	if folder != 0 && !visible[folder] {
+		folder = 0
+	}
+	if folder != 0 {
+		folder = land(folder)
+	}
+
+	data := catalogPageData{Query: query, Searching: query != "", Empty: len(offers) == 0}
+	data.Crumbs = []catalogPathLink{{URL: "/tickets/new"}}
+	var parent *int64
+	if folder != 0 {
+		id := folder
+		parent = &id
+		for _, f := range tree.Path(&id) {
+			data.Crumbs = append(data.Crumbs, catalogPathLink{Name: f.Name, URL: catalogFolderURL(f.ID)})
+		}
+		// Back skips the pass-through chain above this folder, so it never
+		// returns to a level that would land here again.
+		back := int64(0)
+		path := tree.Path(&id)
+		for i := len(path) - 2; i >= 0; i-- {
+			if land(path[i].ID) != folder {
+				back = path[i].ID
+				break
+			}
+		}
+		data.BackURL = catalogFolderURL(back)
+	}
+
+	counts := map[int64]int{}
+	for _, offer := range offers {
+		for _, f := range tree.Path(offer.FolderID) {
+			counts[f.ID]++
+		}
+	}
+	for _, f := range tree.Children(parent) {
+		if visible[f.ID] {
+			data.Folders = append(data.Folders, createCatalogFolderCard{ID: land(f.ID), Name: f.Name, Count: counts[f.ID]})
+		}
+	}
+	matches := false
+	for _, offer := range offers {
+		card := createCatalogCard{catalogCategoryEntry: offer, Caption: catalogCaption(offer)}
+		if (offer.FolderID == nil && folder == 0) || (offer.FolderID != nil && *offer.FolderID == folder) {
+			data.Cards = append(data.Cards, card)
+		}
+		hit := catalogMatches(query, append([]string{offer.Name, offer.Description}, offer.FolderPath...)...)
+		card.Hidden = !hit
+		if hit && query != "" {
+			matches = true
+		}
+		data.Results = append(data.Results, card)
+	}
+	sort.SliceStable(data.Cards, func(i, j int) bool {
+		return domain.CatalogLess(data.Cards[i].Name, data.Cards[i].ID, data.Cards[j].Name, data.Cards[j].ID)
+	})
+	sort.SliceStable(data.Results, func(i, j int) bool {
+		return domain.CatalogLess(data.Results[i].Name, data.Results[i].ID, data.Results[j].Name, data.Results[j].ID)
+	})
+	data.NoMatch = query != "" && !matches
+	return data
+}
+
+// renderCatalog renders the two-step service catalog (issue #391, S4; issue
+// #484): a search box, the current folder level with its breadcrumb, and the
+// flat result list the search shows. A card links to the shared form with its
+// category, and a published category that cannot run stays visible, disabled,
+// with its reason — the same rule the picker applies.
 //
 // With a category-suggestion engine on (issue #416, S2), the same box accepts a
-// description: a "Suggested" group renders above the departments, and a
-// description that names no card keeps the whole catalog visible below it instead
-// of the no-match message (S3).
+// description: a "Suggested" group renders above the catalog, and a
+// description that names no card keeps the folder level visible below it
+// instead of the no-match message (S3).
 func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	offers, err := h.choosableCategories(r, nil)
 	if err != nil {
 		httpError(w, r, "error.internal_server", http.StatusInternalServerError)
 		return
 	}
+	tree := domain.NewCatalogTree(nil)
+	if h.catalog != nil {
+		if tree, err = h.catalog.FolderTree(r.Context()); err != nil {
+			httpError(w, r, "error.internal_server", http.StatusInternalServerError)
+			return
+		}
+	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	suggestionsEnabled := h.suggestionsEnabled(r)
 	suggestions := h.catalogSuggestions(r, query, offers)
-	sections, matches := catalogSections(offers, query)
+	data := buildRequesterCatalog(offers, tree, parseID(r.URL.Query().Get("folder")), query)
 	if len(suggestions) > 0 {
-		if !matches {
+		if data.NoMatch {
 			// The requester described a problem instead of naming a card. The
-			// departments are still the way to choose by hand, so they stay whole
+			// folders are still the way to choose by hand, so the level stays
 			// below the Suggested group rather than disappearing behind a message.
-			sections, _ = catalogSections(offers, "")
+			data.Searching, data.NoMatch = false, false
 		}
-		sections = hideSuggestedCategories(sections, suggestionIDs(suggestions))
+		hideSuggestedCategories(data.Results, suggestionIDs(suggestions))
 	}
 	page := pageDataFrom(r, "tickets")
 	// The catalog is a creation surface: it carries the same page foundation
@@ -1583,21 +1673,14 @@ func (h *TicketHandlers) renderCatalog(w http.ResponseWriter, r *http.Request) {
 	// the search are built from the shared control and shell rungs.
 	page.PageFoundationAssets = true
 	page.CreateAssets = true
-	data := catalogPageData{
-		pageData:           page,
-		Query:              query,
-		Sections:           sections,
-		Suggestions:        suggestions,
-		SuggestionsEnabled: suggestionsEnabled,
-		// A confident suggestion is the answer to a description no card name
-		// carries, so the no-match message would contradict what is on screen.
-		NoMatch: query != "" && !matches && len(suggestions) == 0,
-	}
+	data.pageData = page
+	data.Suggestions = suggestions
+	data.SuggestionsEnabled = suggestionsEnabled
 	h.renderer.Render(w, r, "tickets_catalog", "ticket_catalog", data, http.StatusOK)
 }
 
-// catalogCategories lists every category the catalog knows, with the desk and
-// department that hold it, in catalog order. It reads the same projection the
+// catalogCategories lists every category the catalog knows, with its desk and
+// folder path. It reads the same projection the
 // search does, because the picker and the catalog need the names that make
 // their groups, not just the ids.
 func (h *TicketHandlers) catalogCategories(r *http.Request, fallback []domain.Category) ([]domain.CatalogCategory, error) {
@@ -1627,27 +1710,21 @@ func (h *TicketHandlers) choosableCategories(r *http.Request, fallback []domain.
 }
 
 // catalogCategoryGroup is one optgroup of the create form's category picker
-// (issue #391, S3): the "Department › Desk" its categories belong to.
+// (issue #391, S3): the folder path its categories sit in (issue #484, S11).
 type catalogCategoryGroup struct {
 	Label   string
 	Options []catalogCategoryEntry
 }
 
-// groupCatalogCategories groups the offers by the desk that holds them, keeping
-// the catalog's order so the picker reads like the service catalog. A category
-// with no desk name (a handler built without the catalog service) lands in one
-// unlabelled group, which the picker renders as a plain list.
+// groupCatalogCategories groups the offers by the folder path that holds them
+// (issue #484, S11): groups in path order, categories alphabetical inside. A
+// top-level category lands in one unlabelled group, which the picker renders
+// as a plain list ahead of the folders.
 func groupCatalogCategories(offers []catalogCategoryEntry) []catalogCategoryGroup {
 	groups := make([]catalogCategoryGroup, 0, len(offers))
 	index := make(map[string]int, len(offers))
 	for _, offer := range offers {
-		label := offer.DepartmentName
-		if offer.DeskName != "" {
-			if label != "" {
-				label += " › "
-			}
-			label += offer.DeskName
-		}
+		label := strings.Join(offer.FolderPath, " › ")
 		i, ok := index[label]
 		if !ok {
 			index[label] = len(groups)
@@ -1655,6 +1732,17 @@ func groupCatalogCategories(offers []catalogCategoryEntry) []catalogCategoryGrou
 			i = len(groups) - 1
 		}
 		groups[i].Options = append(groups[i].Options, offer)
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if (groups[i].Label == "") != (groups[j].Label == "") {
+			return groups[i].Label == ""
+		}
+		return strings.ToLower(groups[i].Label) < strings.ToLower(groups[j].Label)
+	})
+	for _, g := range groups {
+		sort.SliceStable(g.Options, func(i, j int) bool {
+			return domain.CatalogLess(g.Options[i].Name, g.Options[i].ID, g.Options[j].Name, g.Options[j].ID)
+		})
 	}
 	return groups
 }

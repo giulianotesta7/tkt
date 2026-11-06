@@ -351,14 +351,9 @@ test.describe("The bell's polling never drives the page behind it", () => {
   test("a poll keeps focus where it is in the category drawer", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAs(page, seededCredentials.email, seededCredentials.password);
-    await page.goto(base() + "/categories");
-    // The Catalog's creation entries live in one New menu (issue #387): open it,
-    // then choose the category drawer.
-    await page.locator("[data-catalog-new-toggle]").click();
-    await page
-      .locator(".catalog-new .category-overflow-menu:not([hidden])")
-      .getByRole("link", { name: "New category", exact: true })
-      .click();
+    // The header button now creates in the tree (issue #487); the drawer is
+    // still reached by its own URL.
+    await page.goto(base() + "/categories/new");
     // The drawer focuses its name field once it settles; move focus after that.
     await expect(page.locator("#category-name")).toBeFocused();
     await page.locator("#category-description").focus();

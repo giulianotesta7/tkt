@@ -39,13 +39,7 @@ func TestMigration0006(t *testing.T) {
 	if !found {
 		t.Fatal("tickets.workflow_version_id missing")
 	}
-	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO categories (name, desk_id, created_at) VALUES (?, (SELECT id FROM desks WHERE name='General' ORDER BY id LIMIT 1), ?)`, "cat-mig-1", "2026-08-06T10:00:00Z"); err != nil {
-		t.Fatalf("seed cat: %v", err)
-	}
-	var catID int64
-	if err := s.db.QueryRow(`SELECT id FROM categories WHERE name='cat-mig-1'`).Scan(&catID); err != nil {
-		t.Fatalf("cat id: %v", err)
-	}
+	catID := seedCategory(t, s, "cat-mig-1")
 	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO workflow_versions (category_id, version_no, steps_json, published_at) VALUES (?,1,'[{"type":"manual_task","manual_task":{"instructions":"do"}}]','2026-08-06T10:00:00Z')`, catID); err != nil {
 		t.Fatalf("insert version: %v", err)
 	}

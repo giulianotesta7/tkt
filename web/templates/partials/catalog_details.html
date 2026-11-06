@@ -1,0 +1,27 @@
+{{define "catalog_details"}}
+<section class="catalog-details" role="region" aria-labelledby="catalog-details-title-{{.Kind}}-{{.ID}}">
+  {{if eq .Kind "category"}}
+  <h2 class="catalog-details-title" id="catalog-details-title-{{.Kind}}-{{.ID}}">{{.Name}}</h2>
+  <form method="post" action="/categories/{{.ID}}/edit" data-details-save novalidate>
+    <input type="hidden" name="inline" value="1"><input type="hidden" name="folder_id" value="{{.FolderID}}">
+    <div class="users-field"><label for="details-name-{{.ID}}">{{t "categories.drawer.name"}}</label><input id="details-name-{{.ID}}" name="name" value="{{.Name}}" required></div>
+    <div class="users-field"><label for="details-description-{{.ID}}">{{t "categories.drawer.description"}}</label><textarea id="details-description-{{.ID}}" name="description" rows="4">{{.Description}}</textarea></div>
+    <div class="users-field"><label for="details-keywords-{{.ID}}">{{t "categories.drawer.keywords"}}</label><input id="details-keywords-{{.ID}}" name="keywords" value="{{.Keywords}}" maxlength="500" aria-describedby="details-keywords-help-{{.ID}}"><p id="details-keywords-help-{{.ID}}" class="users-help">{{t "categories.drawer.keywords_help"}}</p></div>
+    <p class="catalog-details-links"><a href="/categories/{{.ID}}/workflow">{{t "categories.configure_workflow"}}</a><a href="/categories/{{.ID}}/sla">{{t "categories.configure_sla"}}</a></p>
+    <div class="catalog-details-actions"><button class="users-primary-action" type="submit">{{t "users.save_changes"}}</button><button class="users-cancel" type="button" data-details-cancel>{{t "common.cancel"}}</button></div>
+    <p class="catalog-inline-error" data-details-error role="alert" hidden></p>
+  </form>
+  <form method="post" action="/categories/{{.ID}}/delete" data-details-delete><input type="hidden" name="inline" value="1"><button class="users-danger-action" type="submit" data-category-delete="category" data-delete-confirm="{{tf "categories.delete_confirm.category" .Name}}">{{t "categories.delete_category"}}</button></form>
+  {{else}}
+  <h2 class="catalog-details-title" id="catalog-details-title-{{.Kind}}-{{.ID}}">{{.Name}}</h2>
+  <form method="post" action="/categories/folders/{{.ID}}/edit" data-details-save novalidate>
+    <input type="hidden" name="inline" value="1">
+    <div class="users-field"><label for="details-name-{{.ID}}">{{t "categories.drawer.name"}}</label><input id="details-name-{{.ID}}" name="name" value="{{.Name}}" required></div>
+    <div class="users-field"><label for="details-description-{{.ID}}">{{t "categories.drawer.description"}}</label><textarea id="details-description-{{.ID}}" name="description" rows="4">{{.Description}}</textarea></div>
+    <div class="catalog-details-actions"><button class="users-primary-action" type="submit">{{t "users.save_changes"}}</button><button class="users-cancel" type="button" data-details-cancel>{{t "common.cancel"}}</button></div>
+    <p class="catalog-inline-error" data-details-error role="alert" hidden></p>
+  </form>
+  <form method="post" action="/categories/folders/{{.ID}}/delete" data-details-delete><input type="hidden" name="inline" value="1"><button class="users-danger-action" type="submit" data-category-delete="folder" data-delete-confirm="{{tf "categories.delete_confirm.folder" .Name}}"{{if .NotEmpty}} disabled title="{{t "categories.folder_not_empty"}}" aria-describedby="details-not-empty-{{.ID}}"{{end}}>{{t "categories.folder.delete"}}</button>{{if .NotEmpty}}<p id="details-not-empty-{{.ID}}" class="users-help">{{t "categories.folder_not_empty"}}</p>{{end}}</form>
+  {{end}}
+</section>
+{{end}}

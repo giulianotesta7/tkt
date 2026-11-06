@@ -809,7 +809,7 @@
 }
 
 .timezone-picker { position: relative; max-width: 560px; }
-.timezone-popup { position: absolute; z-index: 4; width: 100%; max-height: 240px; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--ink); }
+.timezone-popup { position: absolute; z-index: 50; width: 100%; max-height: 240px; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--ink); }
 .timezone-popup[hidden] { display: none; }
 .timezone-popup [role="option"] { padding: 8px 12px; cursor: pointer; overflow-wrap: anywhere; }
 .timezone-popup [role="option"][aria-selected="true"], .timezone-popup [role="option"]:hover { background: var(--hover); }

@@ -166,6 +166,17 @@ func TestTranslatorAnswersShippedCopy(t *testing.T) {
 	}
 }
 
+func TestDeskDeleteRefusalReferences(t *testing.T) {
+	for locale, want := range map[string]string{
+		English: "This desk can't be deleted: it is referenced by workflows or assignment history.",
+		Spanish: "No se puede eliminar esta mesa: hay workflows o historial de asignaciones que hacen referencia a ella.",
+	} {
+		if got := T(locale, "desks.delete_in_use"); got != want {
+			t.Errorf("%s refusal = %q, want %q", locale, got, want)
+		}
+	}
+}
+
 // --- Reference coverage (S10) ---
 
 // templateKeyRef matches a catalogue key referenced from a template:
@@ -235,12 +246,12 @@ var nonKeyGoLiterals = map[string]bool{
 
 // prefixKeySuffixes pins the concrete suffixes each enum-driven template
 // prefix reference can produce. A prefix with one surviving arm (e.g.
-// categories.kind.department) would otherwise hide a deleted arm, so every
+// categories.kind.folder) would otherwise hide a deleted arm, so every
 // arm listed here must resolve even when the prefix still matches a sibling.
 var prefixKeySuffixes = map[string][]string{
-	"categories.kind.":             {"category", "department", "desk"},
-	"categories.drawer.help.":      {"category", "department", "desk"},
-	"categories.drawer.name_help.": {"category", "department", "desk"},
+	"categories.kind.":             {"category", "desk", "folder", "move"},
+	"categories.drawer.help.":      {"category", "desk", "folder", "move"},
+	"categories.drawer.name_help.": {"category", "desk", "folder"},
 	"ticket_metrics.group.":        {"agent", "desk"},
 	"ticket_metrics.group_by.":     {"priority", "category", "total"},
 }

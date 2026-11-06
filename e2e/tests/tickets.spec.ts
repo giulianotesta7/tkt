@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { expectPopoverInView } from "./helpers/popover.js";
 import { test, expect } from "@playwright/test";
 import { startServer, stopServer, activeServer } from "../server-lifecycle.js";
 import {
@@ -17,10 +18,9 @@ import {
   expectHairlineBorder,
 } from "./helpers/layout.js";
 import {
-  catalogCategoryRow,
-  catalogNode,
-  catalogNodeId,
   chooseCreationPriority,
+  createCategoryInFolder,
+  createFolderViaUi,
   createTicketViaUi,
   creationCategoryPicker,
   creationPriorityPicker,
@@ -80,76 +80,35 @@ async function effectivePaintedBackground(
 }
 
 type PublishedHierarchyFixture = {
-  department: string;
-  departmentID: string;
-  desk: string;
+  folder: string;
+  folderID: string;
   category: string;
   categoryID: string;
 };
 
-/** Open the Catalog's one New menu and choose one of its three entries. */
-async function openCatalogNewMenu(page: import("@playwright/test").Page, item: string) {
-  await page.locator("[data-catalog-new-toggle]").click();
-  await page
-    .locator(".catalog-new .category-overflow-menu:not([hidden])")
-    .getByRole("link", { name: item, exact: true })
-    .click();
-}
-
+/**
+ * A published category inside a folder, worked by its own desk (issue #484):
+ * the folder is where requesters find it, the desk is who answers it.
+ */
 async function createPublishedHierarchyFixture(
   page: import("@playwright/test").Page,
+  o: { subfolder?: string } = {},
 ): Promise<PublishedHierarchyFixture> {
   const suffix = Date.now().toString(36);
   const fixture = {
-    department: `Technology Infrastructure Operations Department ${suffix}`,
-    departmentID: "",
-    desk: `Enterprise Network Endpoint Support Desk ${suffix}`,
+    folder: `Technology Infrastructure Operations ${suffix}`,
+    folderID: "",
     category: `Connectivity Device Assistance Category ${suffix}`,
     categoryID: "",
   };
-
-  await page.goto(base() + "/categories?view=structure");
-  // The Catalog's three creation entries live in one New menu since issue #387:
-  // the menu opens first, then the entry inside it.
-  await openCatalogNewMenu(page, "New department");
-  const departmentDrawer = page.getByRole("dialog", {
-    name: /New department/i,
+  fixture.folderID = await createFolderViaUi(page, fixture.folder);
+  // With a subfolder, the category sits one level down, so the top folder holds
+  // nothing but that folder: a pass-through a requester skips (issue #484, S9).
+  if (o.subfolder) fixture.folderID = await createFolderViaUi(page, o.subfolder, fixture.folderID);
+  fixture.categoryID = await createCategoryInFolder(page, {
+    name: fixture.category,
+    folderID: fixture.folderID,
   });
-  await expect(departmentDrawer).toBeVisible();
-  await departmentDrawer.locator("#category-name").fill(fixture.department);
-  await departmentDrawer.getByRole("button", { name: /create department/i }).click();
-
-  // The Catalog is one tree since issue #387: the new department is a row, and
-  // its id is on the row itself instead of in a drill-down link.
-  const departmentRow = catalogNode(page, "department", fixture.department);
-  await expect(departmentRow).toHaveCount(1);
-  const departmentID = await catalogNodeId(departmentRow, `department ${fixture.department}`);
-  fixture.departmentID = departmentID;
-
-  await openCatalogNewMenu(page, "New desk");
-  const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
-  await expect(deskDrawer).toBeVisible();
-  await deskDrawer.locator("select[name=department_id]").selectOption(departmentID);
-  await deskDrawer.locator("#category-name").fill(fixture.desk);
-  await deskDrawer.getByRole("button", { name: /create desk/i }).click();
-
-  const deskRow = catalogNode(page, "desk", fixture.desk);
-  await expect(deskRow).toHaveCount(1);
-  const deskID = await catalogNodeId(deskRow, `desk ${fixture.desk}`);
-
-  await openCatalogNewMenu(page, "New category");
-  const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
-  await expect(categoryDrawer).toBeVisible();
-  // The generic New menu preselects nothing, so the drawer is driven the way a
-  // person does: department first, then the desk inside it.
-  await categoryDrawer.locator("select[name=department_id]").selectOption(departmentID);
-  await categoryDrawer.locator("select[name=desk_id]").selectOption(deskID);
-  await categoryDrawer.locator("#category-name").fill(fixture.category);
-  await categoryDrawer.getByRole("button", { name: /create category/i }).click();
-
-  const categoryRow = catalogCategoryRow(page, fixture.category);
-  await expect(categoryRow).toHaveCount(1);
-  fixture.categoryID = await catalogNodeId(categoryRow, `category ${fixture.category}`);
   const categoryID = fixture.categoryID;
 
   await page.goto(base() + `/categories/${categoryID}/workflow`);
@@ -211,9 +170,8 @@ async function createPublishedHierarchyFixture(
 }
 
 // Choose one category in the two-step service catalog (issue #391, S4) by its
-// exact name. The catalog is one page of cards grouped by department since
-// #391, so the search box is what narrows a long catalog and the card is what
-// opens the form — no drill-down exists any more.
+// exact name. Search flattens the folder tree (issue #484), so the search box
+// narrows the whole catalog and the matching result card opens the form.
 async function selectCatalogCategory(
   page: import("@playwright/test").Page,
   name: string,
@@ -221,7 +179,7 @@ async function selectCatalogCategory(
   await expect(page.locator(".create-catalog")).toBeVisible();
   const search = page.locator("[data-create-catalog-search]");
   await search.fill(name);
-  const card = page.locator(".create-card").filter({
+  const card = page.locator("[data-catalog-flat] .create-card").filter({
     has: page.locator(".create-card-name", {
       hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
     }),
@@ -293,12 +251,48 @@ test.describe("Ticket Lifecycle", () => {
     });
   });
 
+  for (const field of ["category", "priority"]) {
+    test(`creation ${field} picker stays in the phone viewport`, async ({ page }) => {
+      await loginAsSeeded(page);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(base() + "/tickets/new");
+      const button = page.locator(`#create-${field}-picker`);
+      const popover = page.locator(`#create-${field}-picker-options`);
+      const value = await button.textContent();
+      const posts: string[] = [];
+      page.on("request", (request) => {
+        if (request.method() === "POST") posts.push(request.url());
+      });
+      await button.click();
+      await expectPopoverInView(popover);
+      await expect(button).toHaveAttribute("aria-expanded", "true");
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((value) => {
+          document.documentElement.dataset.theme = value;
+        }, theme);
+        await page.evaluate(() => window.scrollBy(0, 20));
+        await expectPopoverInView(popover);
+      }
+      await page.setViewportSize({ width: 390, height: 600 });
+      await expectPopoverInView(popover);
+      await page.keyboard.press("ArrowDown");
+      await expect(popover.locator('[role="option"]:focus')).toHaveCount(1);
+      await page.keyboard.press("Escape");
+      await expect(popover).toBeHidden();
+      await expect(popover).not.toHaveAttribute("style");
+      await expect(button).toBeFocused();
+      await expect(button).toHaveAttribute("aria-expanded", "false");
+      await expect(button).toHaveText(value || "");
+      expect(posts).toEqual([]);
+    });
+  }
+
   test("single-page creation keeps its shape, its picker and its values", async ({ page }) => {
     // Issue #391, S2/S3/S6/S7. The create form is the detail's own anatomy: a
     // title field that reads as the heading field, a description card with the
     // composer's drop zone, and a properties panel holding Requester, Category
     // and Priority. The category is a native select grouped one optgroup per
-    // "Department › Desk", enhanced into the detail's listbox.
+    // folder path (issue #484), enhanced into the detail's listbox.
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -421,8 +415,8 @@ test.describe("Ticket Lifecycle", () => {
     );
     await expect(page.getByLabel("Title")).toBeFocused();
 
-    // The picker searches by category, desk AND department name, and it keeps
-    // the group headings of the matches.
+    // The picker searches by category name AND folder path, and it keeps the
+    // group headings of the matches.
     await titleInput.fill("Published hierarchy ticket");
     const pickerButton = creationCategoryPicker(page).locator(".listbox-button");
     await pickerButton.click();
@@ -431,13 +425,13 @@ test.describe("Ticket Lifecycle", () => {
     await expect(pickerSearch).toBeFocused();
     const groupHeadings = creationCategoryPicker(page).locator(".listbox-group-label");
     const groupCount = await groupHeadings.count();
-    expect(groupCount).toBeGreaterThan(1);
-    await pickerSearch.fill(fixture.department);
-    // A department name matches every group beneath it, and the groups left
-    // with no match are hidden — the same rule the two-step catalog applies.
+    expect(groupCount).toBeGreaterThan(0);
+    await pickerSearch.fill(fixture.folder);
+    // A folder name matches every group on its path, and the groups left with
+    // no match are hidden.
     const visibleHeadings = creationCategoryPicker(page).locator(".listbox-group-label:visible");
     await expect(visibleHeadings).toHaveCount(1);
-    await expect(visibleHeadings.first()).toContainText(fixture.department);
+    await expect(visibleHeadings.first()).toContainText(fixture.folder);
     await expect(
       creationCategoryPicker(page).locator(".listbox-option").filter({ hasText: fixture.category }),
     ).toBeVisible();
@@ -726,14 +720,16 @@ test.describe("Ticket Lifecycle", () => {
   test("two-step creation: the catalog searches, a card opens the form, and Change goes back", async ({
     page,
   }) => {
-    // Issue #391, S4/S5. Two-step mode opens on a service catalog: a search box,
-    // then one section per department holding category cards captioned with their
-    // desk. A card opens the shared form with the category fixed, Change returns
-    // to the catalog, and a published category that cannot run stays visible with
-    // its reason instead of walking the requester into a refused submit.
+    // Issue #391, S4/S5; issue #484, S7/S9/S11. Two-step mode opens on a
+    // service catalog: a search box, a breadcrumb and one folder level of cards.
+    // A folder that holds only one folder is skipped, search flattens the tree
+    // into categories with their path, a card opens the shared form with the
+    // category fixed, Change returns to the catalog, and a published category
+    // that cannot run stays visible with its reason.
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
+    const fixture = await createPublishedHierarchyFixture(page, { subfolder: "Network access" });
     await setTicketCreationMode(page, "two_step");
     try {
       await page.goto(base() + "/tickets/new");
@@ -746,21 +742,45 @@ test.describe("Ticket Lifecycle", () => {
       ).toHaveCount(0);
       const search = page.locator("[data-create-catalog-search]");
       await expect(search).toBeVisible();
+      const level = catalog.locator("[data-catalog-level]");
+      const crumbs = level.locator(".create-catalog-crumbs");
+      await expect(crumbs.locator("[aria-current=page]")).toHaveText("All requests");
 
-      // One section per department, holding name + desk caption cards.
-      const sections = catalog.locator(".create-catalog-department-group");
-      expect(await sections.count()).toBeGreaterThan(0);
-      const generalCard = page
+      // The top level: the seeded categories, and the fixture's folder.
+      const generalCard = level
         .locator(".create-card")
         .filter({ has: page.locator(".create-card-name", { hasText: /^General$/ }) });
       await expect(generalCard).toHaveCount(1);
-      await expect(generalCard.locator(".create-card-desk")).toHaveText("General");
+      await expect(generalCard.locator(".create-card-desk")).toHaveText("");
+      const folderCard = level
+        .locator(".create-folder-card")
+        .filter({ has: page.locator(".create-card-name", { hasText: fixture.folder }) });
+      await expect(folderCard).toHaveCount(1);
+      await expect(folderCard.locator(".create-card-desk")).toHaveText("1 option");
 
-      // The search filters the cards live, by category, desk or department, and
-      // hides the departments left with no match.
+      // The folder holds only "Network access": opening it lands there, with the
+      // full path in the breadcrumb, and Back returns to the top level.
+      await folderCard.click();
+      await expect(page).toHaveURL(new RegExp(`/tickets/new\\?folder=${fixture.folderID}$`));
+      await expect(crumbs).toContainText(`All requests›${fixture.folder}›Network access`);
+      await expect(crumbs.locator("[aria-current=page]")).toHaveText("Network access");
+      const card = level.locator(".create-card").filter({ hasText: fixture.category });
+      await expect(card).toHaveCount(1);
+      await expect(card.locator(".create-card-desk")).toHaveText(
+        `${fixture.folder} › Network access`,
+      );
+      await level.getByRole("link", { name: "Back", exact: true }).click();
+      await expect(page).toHaveURL(/\/tickets\/new$/);
+
+      // The search flattens the tree live: the level hides and the matching
+      // categories show, each with its path.
+      await search.fill("Network access");
+      await expect(level).toBeHidden();
+      const results = catalog.locator("[data-catalog-flat] .create-card:visible");
+      await expect(results).toHaveCount(1);
+      await expect(results.first()).toContainText(fixture.category);
       await search.fill("Unrunnable");
-      await expect(generalCard).toBeHidden();
-      const unavailableCard = catalog.locator(".create-card-unavailable");
+      const unavailableCard = catalog.locator("[data-catalog-flat] .create-card-unavailable");
       await expect(unavailableCard).toHaveCount(1);
       await expect(unavailableCard).toBeVisible();
       await expect(unavailableCard).toContainText("Unrunnable Requests");
@@ -772,14 +792,16 @@ test.describe("Ticket Lifecycle", () => {
       await expect(unavailableCard).toHaveAttribute("aria-disabled", "true");
       await expect(unavailableCard).toHaveCSS("cursor", "not-allowed");
       await expect(catalog.locator("a.create-card-unavailable")).toHaveCount(0);
+      await search.fill("");
+      await expect(level).toBeVisible();
 
       // The server-side half of the same rule: ?q keeps working with no script.
       await page.goto(base() + "/tickets/new?q=Unrunnable");
-      await expect(page.locator(".create-card-unavailable")).toBeVisible();
-      await expect(generalCard).toBeHidden();
+      await expect(page.locator("[data-catalog-flat] .create-card-unavailable")).toBeVisible();
+      await expect(page.locator("[data-catalog-level]")).toBeHidden();
       await page.goto(base() + "/tickets/new?q=nothing-here");
       await expect(page.locator(".create-catalog-empty")).toContainText(
-        "No categories match your search.",
+        "No requests match your search.",
       );
 
       // A card opens the shared form with the category fixed.
@@ -1930,31 +1952,26 @@ test.describe("Requester creation surfaces (seeded)", () => {
     const fixture = await createPublishedHierarchyFixture(page);
     await page.setViewportSize({ width: 1280, height: 800 });
 
-    // Add a second, UNPUBLISHED category to the same desk: the admin structure
-    // lists it, the requester surfaces must not.
-    await page.goto(base() + "/categories?view=structure");
-    const structureDesk = catalogNode(page, "desk", fixture.desk);
-    await expect(structureDesk).toHaveCount(1);
-    const deskID = await catalogNodeId(structureDesk, `desk ${fixture.desk}`);
-    expect(deskID, `cannot resolve fixture desk ${fixture.desk} at ${page.url()}`).toBeTruthy();
-    await openCatalogNewMenu(page, "New category");
-    const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
-    await expect(categoryDrawer).toBeVisible();
-    await categoryDrawer.locator("select[name=department_id]").selectOption(fixture.departmentID);
-    await categoryDrawer.locator("select[name=desk_id]").selectOption(deskID);
-    await categoryDrawer.locator("#category-name").fill(`${fixture.category} Draft`);
-    await categoryDrawer.getByRole("button", { name: /create category/i }).click();
+    // Add a second, UNPUBLISHED category to the same folder: the admin
+    // catalog lists it, the requester surfaces must not.
+    await createCategoryInFolder(page, {
+      name: `${fixture.category} Draft`,
+      folderID: fixture.folderID,
+    });
+    await page.goto(base() + "/categories");
     await expect(
-      page.locator(`[data-level="desk"][data-catalog-id="${deskID}"] [data-level="category"]`),
+      page.locator(
+        `li[data-level="folder"][data-catalog-id="${fixture.folderID}"] li[data-level="category"]`,
+      ),
     ).toHaveCount(2);
 
-    // The single-page picker offers exactly one option in that desk's group.
+    // The single-page picker offers exactly one option in that folder's group.
     await page.goto(base() + "/tickets/new");
     const pickerButton = creationCategoryPicker(page).locator(".listbox-button");
     await pickerButton.click();
     const deskGroup = creationCategoryPicker(page)
       .locator(".listbox-group")
-      .filter({ has: page.locator(".listbox-group-label", { hasText: fixture.desk }) });
+      .filter({ has: page.locator(".listbox-group-label", { hasText: fixture.folder }) });
     await expect(deskGroup).toHaveCount(1);
     await expect(deskGroup.locator(".listbox-option")).toHaveCount(1);
     await expect(deskGroup).toContainText(fixture.category);
@@ -1967,7 +1984,9 @@ test.describe("Requester creation surfaces (seeded)", () => {
       await page.goto(base() + "/tickets/new");
       const search = page.locator("[data-create-catalog-search]");
       await search.fill(fixture.category);
-      const cards = page.locator(".create-card").filter({ hasText: fixture.category });
+      const cards = page
+        .locator("[data-catalog-flat] .create-card:visible")
+        .filter({ hasText: fixture.category });
       await expect(cards).toHaveCount(1);
       await expect(cards).not.toContainText(`${fixture.category} Draft`);
     } finally {
@@ -2158,9 +2177,7 @@ test.describe("Ticket category suggestions (seeded)", () => {
       const chip = host.locator(".create-suggestion-chip");
       await expect(chip).toHaveCount(1);
       await expect(chip.locator(".create-suggestion-chip-name")).toHaveText(fixture.category);
-      await expect(chip.locator(".create-suggestion-chip-desk")).toHaveText(
-        `${fixture.department} · ${fixture.desk}`,
-      );
+      await expect(chip.locator(".create-suggestion-chip-desk")).toHaveText(fixture.folder);
 
       // The block adds ONE hairline between the Category row and the row below
       // it, measured in the computed style at both viewports and in both themes:
@@ -2286,7 +2303,7 @@ test.describe("Ticket category suggestions (seeded)", () => {
     }
   });
 
-  test("two-step creation suggests a category above the catalog and keeps the departments", async ({
+  test("two-step creation suggests a category above the catalog and keeps the folder level", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -2332,7 +2349,7 @@ test.describe("Ticket category suggestions (seeded)", () => {
       await expect(tile.locator(".create-card-name")).toHaveText(fixture.category);
       await expect(tile.locator(".create-card-matches")).toHaveText("Matches: wifi");
       // The group adds no rule of its own: the region between the search box and
-      // the first department group draws none, measured at both viewports and in
+      // the folder level draws none, measured at both viewports and in
       // both themes, exactly as it draws none with nothing suggested below.
       await expectDividers(
         page,
@@ -2341,12 +2358,10 @@ test.describe("Ticket category suggestions (seeded)", () => {
         "the Suggested group's divider count",
       );
       const offsetWithSuggestion = await catalogContentOffset(page);
-      // S3: the departments stay whole under the group, because choosing from the
+      // S3: the folder level stays under the group, because choosing from the
       // catalog is still the way to pick a category the engine did not name.
-      expect(
-        await page.locator(".create-catalog-department-group:visible").count(),
-      ).toBeGreaterThan(0);
-      await expect(page.locator(".create-catalog-empty")).toHaveCount(0);
+      await expect(page.locator("[data-catalog-level]")).toBeVisible();
+      await expect(page.locator(".create-catalog-empty:visible")).toHaveCount(0);
 
       // A plain category-name search still filters the catalog the way it does
       // today: only the matching card remains, with its own reason when it cannot
@@ -2379,11 +2394,11 @@ test.describe("Ticket category suggestions (seeded)", () => {
         "the divider count with nothing suggested",
       );
       const offsetWithNothing = await catalogContentOffset(page);
-      const unavailable = page.locator(".create-card-unavailable");
+      const unavailable = page.locator("[data-catalog-flat] .create-card-unavailable");
       await expect(unavailable).toBeVisible();
       await expect(unavailable).toContainText("Unrunnable Requests");
       await expect(unavailable).toContainText("Unstaffed Desk has no active members");
-      await expect(page.locator(".create-catalog-department-group:visible")).toHaveCount(1);
+      await expect(page.locator("[data-catalog-flat] .create-card:visible")).toHaveCount(1);
 
       // With the feature off the catalog is the catalog: no suggestion group, no
       // suggestion request, and a description filters to nothing exactly as it
@@ -2407,7 +2422,7 @@ test.describe("Ticket category suggestions (seeded)", () => {
       await expect(page.locator(".create-card:visible")).toHaveCount(0);
       await page.goto(base() + "/tickets/new?q=wifi+is+not+working");
       await expect(page.locator(".create-catalog-empty")).toContainText(
-        "No categories match your search.",
+        "No requests match your search.",
       );
       await expect(page.locator(catalogSuggestionSelector)).toHaveCount(0);
 
@@ -2446,9 +2461,7 @@ test.describe("Ticket creation without scripting (seeded)", () => {
     await expect(page.locator(".create-listbox")).toHaveCount(0);
     const select = page.locator('.ticket-create-detail select[name="category_id"]');
     await expect(select).toBeVisible();
-    // One optgroup per "Department › Desk".
-    const groups = select.locator("optgroup");
-    expect(await groups.count()).toBeGreaterThan(0);
+    // Top-level categories come first, then one optgroup per folder path.
     await select.selectOption({ label: "General" });
 
     const title = "No-script single page " + Date.now().toString(36);
@@ -2473,13 +2486,14 @@ test.describe("Ticket creation without scripting (seeded)", () => {
     try {
       await page.goto(base() + "/tickets/new");
       await expect(page.locator(".create-catalog")).toBeVisible();
-      // The server-side search filters the cards, because the live filter needs
-      // a script this context does not run.
+      // The server-side search flattens the catalog into matching categories,
+      // because the live filter needs a script this context does not run.
       const search = page.locator("[data-create-catalog-search]");
       await search.fill("General");
       await search.press("Enter");
       await expect(page).toHaveURL(/\/tickets\/new\?q=General$/);
-      const card = page.locator(".create-card").filter({
+      await expect(page.locator("[data-catalog-level]")).toBeHidden();
+      const card = page.locator("[data-catalog-flat] .create-card").filter({
         has: page.locator(".create-card-name", { hasText: /^General$/ }),
       });
       await expect(card).toHaveCount(1);

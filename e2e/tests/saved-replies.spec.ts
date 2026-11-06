@@ -77,7 +77,7 @@ async function createReply(
  */
 async function addDeskMember(page: Page, deskName: string, memberName: string): Promise<string> {
   const deskID = await selectCatalogDesk(page, deskName);
-  const deskRow = page.locator(`[data-level="desk"][data-catalog-id="${deskID}"]`);
+  const deskRow = page.locator(`tr[data-desk-id="${deskID}"]`);
   await catalogRowMenu(deskRow).click();
   await deskRow
     .locator(".category-overflow-menu:not([hidden])")

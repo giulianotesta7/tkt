@@ -229,14 +229,14 @@ func TestSpanishUserForm(t *testing.T) {
 // including a composed workflow badge (the Msg path: key + nested sentence).
 func TestSpanishCategoriesScreen(t *testing.T) {
 	body := renderLocalized(t, "es", "categories_index", "categories_background", fixtureCategoriesIndexData())
-	for _, want := range []string{"Catálogo", "Nuevo departamento", "Nueva mesa", "Nueva categoría", "Estructura del catálogo", "abiertos"} {
+	for _, want := range []string{"Catálogo", "Nueva carpeta", "Nueva categoría", "Contraer todo"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish catalog must render %q, got: %.800s", want, body)
 		}
 	}
 	// The fixture's badges compose through the catalogue: "Workflow v1" and
 	// "Draft" both speak Spanish on a Spanish instance.
-	for _, want := range []string{"Flujo v1", ">Borrador<"} {
+	for _, want := range []string{"Flujo v1", "Borrador"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Spanish catalog badge must render %q, got: %.1200s", want, body)
 		}
@@ -803,48 +803,12 @@ func TestSpanishSLADetailAndDegradeLabels(t *testing.T) {
 		t.Errorf("Spanish workload no-desk label = %q, want %q", got, "Sin mesa")
 	}
 	for key, want := range map[string]string{
-		"tickets.agent.claim_unavailable":   "Este ticket ya no está disponible para tomarlo.",
-		"categories.refresh_error":          "Se guardaron los cambios, pero no se pudo actualizar la lista de categorías. Recarga la página para ver los cambios guardados.",
-		"categories.unassigned.name":        "Sin asignar",
-		"categories.unassigned.description": "Mesas sin departamento",
+		"tickets.agent.claim_unavailable": "Este ticket ya no está disponible para tomarlo.",
+		"categories.refresh_error":        "Se guardaron los cambios, pero no se pudo actualizar la lista de categorías. Recarga la página para ver los cambios guardados.",
 	} {
 		if got := i18n.T(i18n.Spanish, key); got != want {
 			t.Errorf("es %q = %q, want %q", key, got, want)
 		}
-	}
-}
-
-// TestSpanishCatalogStructureSyntheticGroup renders the virtual Unassigned
-// department a legacy desk is exposed through in Spanish: the synthetic group
-// name and description are chrome, so they follow the instance language even
-// though the desks themselves are admin-authored content (S11).
-func TestSpanishCatalogStructureSyntheticGroup(t *testing.T) {
-	h := newHarness(t)
-	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
-		t.Fatalf("set interface language: %v", err)
-	}
-	legacy, err := h.desks.CreateWithDescription(t.Context(), *h.admin, "Legacy desk", "Legacy description")
-	if err != nil {
-		t.Fatalf("create legacy desk: %v", err)
-	}
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
-	mux := http.NewServeMux()
-	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
-	req := httptest.NewRequest(http.MethodGet, "/categories?view=structure&department_id=unassigned&desk_id="+strconv.FormatInt(legacy.ID, 10), nil)
-	req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
-	rec := httptest.NewRecorder()
-	h.mw.Wrap(mux).ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("spanish legacy structure = %d, want 200: %s", rec.Code, rec.Body.String())
-	}
-	body := rec.Body.String()
-	for _, want := range []string{"Sin asignar", "Mesas sin departamento", "Legacy desk"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("Spanish catalog structure must render %q, got: %.800s", want, body)
-		}
-	}
-	if strings.Contains(body, ">Unassigned<") || strings.Contains(body, "Desks without a department") {
-		t.Errorf("Spanish catalog structure must not render the English synthetic group: %.800s", body)
 	}
 }
 

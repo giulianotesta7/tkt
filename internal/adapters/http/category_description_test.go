@@ -14,12 +14,8 @@ import (
 
 func TestCatalogCategoryDescriptionCanBeBlankOnCreateAndEdit(t *testing.T) {
 	h := newHarness(t)
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "")
-	if err != nil {
-		t.Fatalf("Create department: %v", err)
-	}
-	desk, err := h.desks.CreateInDepartment(t.Context(), *h.admin, department.ID, "Support")
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock).WithFolders(h.store.FolderStore())
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Support")
 	if err != nil {
 		t.Fatalf("Create desk: %v", err)
 	}
@@ -28,8 +24,7 @@ func TestCatalogCategoryDescriptionCanBeBlankOnCreateAndEdit(t *testing.T) {
 	handler.Register(mux)
 	deskID := strconv.FormatInt(desk.ID, 10)
 
-	departmentID := strconv.FormatInt(department.ID, 10)
-	createForm := url.Values{"name": {"Blank description"}, "description": {""}, "department_id": {departmentID}, "desk_id": {deskID}}
+	createForm := url.Values{"name": {"Blank description"}, "description": {""}, "desk_id": {deskID}}
 	createRequest := httptest.NewRequest(http.MethodPost, "/categories", strings.NewReader(createForm.Encode()))
 	createRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	createRequest = createRequest.WithContext(context.WithValue(createRequest.Context(), ctxKeyUser{}, h.admin))
@@ -56,7 +51,7 @@ func TestCatalogCategoryDescriptionCanBeBlankOnCreateAndEdit(t *testing.T) {
 		t.Fatal("created category was not found")
 	}
 
-	updateForm := url.Values{"name": {"Blank description"}, "description": {""}, "department_id": {departmentID}, "desk_id": {deskID}}
+	updateForm := url.Values{"name": {"Blank description"}, "description": {""}, "desk_id": {deskID}}
 	updateRequest := httptest.NewRequest(http.MethodPost, "/categories/"+strconv.FormatInt(createdID, 10)+"/edit", strings.NewReader(updateForm.Encode()))
 	updateRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	updateRequest = updateRequest.WithContext(context.WithValue(updateRequest.Context(), ctxKeyUser{}, h.admin))
@@ -72,8 +67,5 @@ func TestCatalogCategoryDescriptionCanBeBlankOnCreateAndEdit(t *testing.T) {
 	}
 	if updated.Description != "" {
 		t.Fatalf("updated description = %q, want empty", updated.Description)
-	}
-	if updated.DeskID != desk.ID {
-		t.Fatalf("updated desk ID = %d, want %d", updated.DeskID, desk.ID)
 	}
 }

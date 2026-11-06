@@ -10,10 +10,8 @@ import { startServer, stopServer } from "../server-lifecycle.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { base, createUserAsAdmin, loginAs, logout, seededCredentials } from "./helpers/auth.js";
 import {
-  catalogCategoryRow,
-  catalogNode,
-  catalogNodeId,
-  catalogTree,
+  createCategoryInFolder,
+  createDeskViaUi,
   createTicketViaUi,
   resolveUserEditHref,
 } from "./helpers/navigation.js";
@@ -50,38 +48,15 @@ async function prepareFixtures(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/users$/);
   await expect(agentRow).toContainText("Agent");
 
-  // The Catalog is one tree (issue #387): the first department row carries its
-  // own id, so the fixture no longer needs a drill-down link to find it.
-  await page.goto(base() + "/categories?view=structure");
-  const firstDepartment = catalogTree(page).locator('[data-level="department"]').first();
-  await expect(firstDepartment).toHaveCount(1);
-  const deptId = await catalogNodeId(firstDepartment, "the first department");
-
-  await page.goto(base() + "/categories/desks/new?view=structure&department_id=" + deptId);
-  const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
-  await expect(deskDrawer).toBeVisible();
-  await deskDrawer.locator('select[name="department_id"]').selectOption(deptId);
-  await deskDrawer.getByLabel("Name").fill(deskName);
-  await deskDrawer.getByRole("button", { name: /create desk/i }).click();
-  const deskRow = catalogNode(page, "desk", deskName);
-  await expect(deskRow).toHaveCount(1);
-  const deskId = await catalogNodeId(deskRow, `desk ${deskName}`);
-
-  await page.goto(base() + `/categories/desks/${deskId}/edit?view=structure`);
+  const deskId = await createDeskViaUi(page, deskName);
+  await page.goto(base() + `/desks/${deskId}/edit`);
   const editDrawer = page.getByRole("dialog", { name: /Edit desk/i });
   await expect(editDrawer).toBeVisible();
   await editDrawer.locator("select#desk-member").selectOption({ label: agent.name });
   await editDrawer.getByRole("button", { name: "Add member" }).click();
   await expect(editDrawer.getByRole("listitem").filter({ hasText: agent.name })).toHaveCount(1);
 
-  const ctx = `view=structure&department_id=${deptId}&desk_id=${deskId}`;
-  await page.goto(base() + `/categories/new?${ctx}`);
-  await expect(page.locator('select[name="desk_id"]')).toHaveValue(deskId);
-  await page.locator("#category-name").fill(categoryName);
-  await page.getByRole("button", { name: /create category/i }).click();
-  const catRow = catalogCategoryRow(page, categoryName);
-  await expect(catRow).toHaveCount(1);
-  const catId = await catalogNodeId(catRow, `category ${categoryName}`);
+  const catId = await createCategoryInFolder(page, { name: categoryName });
 
   await page.goto(base() + `/categories/${catId}/workflow`);
   const addStep = page.locator(".workflow-add-popover summary");

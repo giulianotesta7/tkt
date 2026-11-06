@@ -14,42 +14,80 @@ type CategoryAvailability interface {
 	ListAvailableCategories(ctx context.Context) ([]domain.Category, error)
 }
 
-// CatalogService owns the fixed Department -> Desk -> Category hierarchy while
-// CategoryService and DeskService retain their existing domain responsibilities.
+// CatalogService reads the catalog (issue #484): every category with its
+// responsible desk and its place in the folder tree, the desk projection the
+// Categories and Desks screens show, and the category edits the drawer makes.
 type CatalogService struct {
 	catalog    CatalogStore
 	categories CategoryStore
 	clock      domain.Clock
+	// folders, when set, places every listed category in the folder tree and
+	// lets search match the folder names on its path (issue #484).
+	folders FolderStore
 }
 
 func NewCatalogService(catalog CatalogStore, categories CategoryStore, clock domain.Clock) *CatalogService {
 	return &CatalogService{catalog: catalog, categories: categories, clock: clock}
 }
 
-func (s *CatalogService) ListDepartments(ctx context.Context) ([]domain.CatalogDepartment, error) {
-	return s.catalog.ListDepartments(ctx)
+// WithFolders makes the catalog report each category's folder and path, and
+// makes Search match folder names as well (issue #484, S8/S11).
+func (s *CatalogService) WithFolders(folders FolderStore) *CatalogService {
+	s.folders = folders
+	return s
 }
 
-func (s *CatalogService) ListDesks(ctx context.Context, departmentID int64) ([]domain.CatalogDesk, error) {
-	return s.catalog.ListDesks(ctx, departmentID)
+// FolderTree reads the folder tree for the requester catalog; without a
+// folder store it is empty and every category sits at the top level.
+func (s *CatalogService) FolderTree(ctx context.Context) (domain.CatalogTree, error) {
+	if s.folders == nil {
+		return domain.NewCatalogTree(nil), nil
+	}
+	folders, err := s.folders.ListFolders(ctx)
+	if err != nil {
+		return domain.CatalogTree{}, err
+	}
+	return domain.NewCatalogTree(folders), nil
 }
 
-func (s *CatalogService) ListCategories(ctx context.Context, deskID int64) ([]domain.CatalogCategory, error) {
-	return s.catalog.ListCatalogCategories(ctx, deskID)
+// placeInFolders sets FolderID and FolderPath on every category. Without a
+// folder store the categories are returned untouched.
+func (s *CatalogService) placeInFolders(ctx context.Context, categories []domain.CatalogCategory) ([]domain.CatalogCategory, error) {
+	if s.folders == nil {
+		return categories, nil
+	}
+	folders, err := s.folders.ListFolders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	places, err := s.folders.CategoryFolders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tree := domain.NewCatalogTree(folders)
+	for i := range categories {
+		folder := places[categories[i].ID]
+		categories[i].FolderID = folder
+		categories[i].FolderPath = tree.PathNames(folder)
+	}
+	return categories, nil
 }
 
-// ListAllCategories lists every category with the desk and department that hold
-// it, in catalog order (department, desk, category). The create surfaces need
-// the desk and department NAMES, not just the ids, to group a picker by
-// "Department › Desk" and to caption a catalog card with its desk (issue #391).
+// ListAllCategories lists every category with its desk and folder path. The
+// create surfaces need the NAMES, not just the ids, to group a picker by folder
+// path and to caption a catalog card (issue #391, issue #484).
 // It reads the same projection the search uses with an empty query, so there is
 // no second definition of "the catalog's categories".
 func (s *CatalogService) ListAllCategories(ctx context.Context) ([]domain.CatalogCategory, error) {
-	return s.catalog.SearchCatalog(ctx, "")
+	all, err := s.catalog.SearchCatalog(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	return s.placeInFolders(ctx, all)
 }
 
-// ListTreeDesks is the catalog tree's desk projection: every desk with its
-// department, category, agent and open-ticket counts in one read. A store that
+// ListTreeDesks is the desk projection: every desk with its category, agent
+// and open-ticket counts in one read. A store that
 // cannot answer it reports that plainly instead of pretending the installation
 // has no desks.
 func (s *CatalogService) ListTreeDesks(ctx context.Context) ([]domain.CatalogDesk, error) {
@@ -70,8 +108,31 @@ func (s *CatalogService) ListDefaultSLACategories(ctx context.Context) ([]int64,
 	return store.ListDefaultSLACategories(ctx)
 }
 
+// Search lists the categories whose name or description contains
+// query, case-insensitively. With folders configured it also matches the names
+// of the folders on a category's path, so the store is read unfiltered and the
+// match happens here, on the same fields for every category (S11).
 func (s *CatalogService) Search(ctx context.Context, query string) ([]domain.CatalogCategory, error) {
-	return s.catalog.SearchCatalog(ctx, strings.TrimSpace(query))
+	query = strings.TrimSpace(query)
+	if s.folders == nil {
+		return s.catalog.SearchCatalog(ctx, query)
+	}
+	all, err := s.ListAllCategories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	needle := strings.ToLower(query)
+	var out []domain.CatalogCategory
+	for _, c := range all {
+		fields := append([]string{c.Name, c.Description}, c.FolderPath...)
+		for _, field := range fields {
+			if strings.Contains(strings.ToLower(field), needle) {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 func (s *CatalogService) FindCategory(ctx context.Context, id int64, availability CategoryAvailability) (*domain.CatalogCategory, error) {
@@ -102,166 +163,14 @@ func (s *CatalogService) FindCategory(ctx context.Context, id int64, availabilit
 	}
 	for _, match := range matches {
 		if match.ID == id {
-			return &match, nil
+			placed, err := s.placeInFolders(ctx, []domain.CatalogCategory{match})
+			if err != nil {
+				return nil, err
+			}
+			return &placed[0], nil
 		}
 	}
 	return nil, &domain.NotFoundError{Kind: "category", ID: id}
-}
-
-func (s *CatalogService) CreateDepartmentFor(ctx context.Context, actor domain.User, name, description string) (*domain.Department, error) {
-	if !canManageCatalog(actor) {
-		return nil, domain.NewForbiddenError("category management is not permitted")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired, Key: "error.category_name_required"}
-	}
-	d := &domain.Department{Name: name, Description: strings.TrimSpace(description), CreatedAt: s.clock.Now()}
-	if err := s.catalog.CreateDepartment(ctx, d); err != nil {
-		return nil, err
-	}
-	return d, nil
-}
-
-func (s *CatalogService) UpdateDepartmentFor(ctx context.Context, actor domain.User, id int64, name, description string) (*domain.Department, error) {
-	if !canManageCatalog(actor) {
-		return nil, domain.NewForbiddenError("category management is not permitted")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired, Key: "error.category_name_required"}
-	}
-	d := &domain.Department{ID: id, Name: name, Description: strings.TrimSpace(description)}
-	if err := s.catalog.UpdateDepartment(ctx, d); err != nil {
-		return nil, err
-	}
-	return d, nil
-}
-
-func (s *CatalogService) DeleteDepartmentFor(ctx context.Context, actor domain.User, id int64) error {
-	if !canManageCatalog(actor) {
-		return domain.NewForbiddenError("category management is not permitted")
-	}
-	return s.catalog.DeleteDepartment(ctx, id)
-}
-
-func (s *CatalogService) CreateDeskFor(ctx context.Context, actor domain.User, departmentID int64, name string, descriptions ...string) (*domain.Desk, error) {
-	if !canManageCatalog(actor) {
-		return nil, domain.NewForbiddenError("category management is not permitted")
-	}
-	if err := validateCatalogID("department_id", departmentID); err != nil {
-		return nil, err
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, &domain.ValidationError{Field: "name", Message: "desk name is required", Key: "error.desk_name_required"}
-	}
-	store, ok := s.catalog.(CatalogDeskStore)
-	if !ok {
-		return nil, domain.NewForbiddenError("desk management is not configured")
-	}
-	d := &domain.Desk{Name: name, Description: optionalDescription(descriptions), CreatedAt: s.clock.Now(), DepartmentID: &departmentID}
-	if err := store.CreateDesk(ctx, d); err != nil {
-		return nil, err
-	}
-	return d, nil
-}
-
-func (s *CatalogService) UpdateDeskFor(ctx context.Context, actor domain.User, id, departmentID int64, name string, descriptions ...string) error {
-	if !canManageCatalog(actor) {
-		return domain.NewForbiddenError("category management is not permitted")
-	}
-	if err := validateCatalogID("desk_id", id); err != nil {
-		return err
-	}
-	if err := validateCatalogID("department_id", departmentID); err != nil {
-		return err
-	}
-	store, ok := s.catalog.(CatalogDeskStore)
-	if !ok {
-		return domain.NewForbiddenError("desk management is not configured")
-	}
-	d, err := store.GetDeskByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	d.Name = strings.TrimSpace(name)
-	if len(descriptions) > 0 {
-		d.Description = strings.TrimSpace(descriptions[0])
-	}
-	if d.Name == "" {
-		return &domain.ValidationError{Field: "name", Message: "desk name is required", Key: "error.desk_name_required"}
-	}
-	d.DepartmentID = &departmentID
-	return store.UpdateDesk(ctx, d)
-}
-
-func (s *CatalogService) DeleteDeskFor(ctx context.Context, actor domain.User, id int64) error {
-	if !canManageCatalog(actor) {
-		return domain.NewForbiddenError("category management is not permitted")
-	}
-	store, ok := s.catalog.(CatalogDeskStore)
-	if !ok {
-		return domain.NewForbiddenError("desk management is not configured")
-	}
-	return store.DeleteDesk(ctx, id)
-}
-
-func (s *CatalogService) ListDeskMembersFor(ctx context.Context, actor domain.User, id int64) ([]domain.User, error) {
-	if !canManageCatalog(actor) {
-		return nil, domain.NewForbiddenError("category management is not permitted")
-	}
-	store, ok := s.catalog.(CatalogDeskStore)
-	if !ok {
-		return nil, domain.NewForbiddenError("desk management is not configured")
-	}
-	return store.ListDeskMembers(ctx, id)
-}
-
-func (s *CatalogService) ListEligibleDeskMembersFor(ctx context.Context, actor domain.User) ([]domain.User, error) {
-	if !canManageCatalog(actor) {
-		return nil, domain.NewForbiddenError("category management is not permitted")
-	}
-	store, ok := s.catalog.(CatalogDeskStore)
-	if !ok {
-		return nil, domain.NewForbiddenError("desk management is not configured")
-	}
-	return store.ListEligibleDeskMembers(ctx)
-}
-
-func (s *CatalogService) AddDeskMemberFor(ctx context.Context, actor domain.User, deskID, userID int64) error {
-	if !canManageCatalog(actor) {
-		return domain.NewForbiddenError("category management is not permitted")
-	}
-	store, ok := s.catalog.(CatalogDeskStore)
-	if !ok {
-		return domain.NewForbiddenError("desk management is not configured")
-	}
-	return store.AddDeskMember(ctx, deskID, userID, s.clock.Now())
-}
-
-func (s *CatalogService) RemoveDeskMemberFor(ctx context.Context, actor domain.User, deskID, userID int64) error {
-	if !canManageCatalog(actor) {
-		return domain.NewForbiddenError("category management is not permitted")
-	}
-	store, ok := s.catalog.(CatalogDeskStore)
-	if !ok {
-		return domain.NewForbiddenError("desk management is not configured")
-	}
-	return store.RemoveDeskMember(ctx, deskID, userID)
-}
-
-func (s *CatalogService) MoveCategoryFor(ctx context.Context, actor domain.User, categoryID, deskID int64) error {
-	if !canManageCatalog(actor) {
-		return domain.NewForbiddenError("category management is not permitted")
-	}
-	if err := validateCatalogID("category_id", categoryID); err != nil {
-		return err
-	}
-	if err := validateCatalogID("desk_id", deskID); err != nil {
-		return err
-	}
-	return s.catalog.MoveCategory(ctx, categoryID, deskID)
 }
 
 func (s *CatalogService) UpdateCategoryFor(ctx context.Context, actor domain.User, c *domain.Category) error {
@@ -270,9 +179,6 @@ func (s *CatalogService) UpdateCategoryFor(ctx context.Context, actor domain.Use
 	}
 	if c == nil {
 		return &domain.ValidationError{Field: "category", Message: "category is required"}
-	}
-	if err := validateCatalogID("desk_id", c.DeskID); err != nil {
-		return err
 	}
 	c.Name = strings.TrimSpace(c.Name)
 	c.Description = strings.TrimSpace(c.Description)
@@ -289,13 +195,6 @@ func (s *CatalogService) UpdateCategoryFor(ctx context.Context, actor domain.Use
 
 func canManageCatalog(actor domain.User) bool {
 	return NewPolicy().Capabilities(actor.Role).Require(CapManageCategories)
-}
-
-func optionalDescription(values []string) string {
-	if len(values) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(values[0])
 }
 
 func validateCatalogID(field string, id int64) error {

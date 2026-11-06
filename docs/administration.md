@@ -39,22 +39,52 @@ and becomes root, and everyone else is created here.
 
 ## Desks and the catalog
 
-The catalog routes requests:
+The catalog is a tree of folders and categories, and desks are the teams that handle them:
 
 ```text
-Department  →  Desk  →  Category
+Folder  →  Folder  →  …  →  Category  ⇢  Workflow  ⇢  Desk
 ```
 
-- A **department** groups desks that support the same part of the organization.
-- A **desk** groups the categories one team handles and holds that team's members.
-- A **category** groups requests that follow the same workflow.
+- A **folder** groups categories and other folders. Folders nest to any depth, and a category
+  sits in one folder or at the top level.
+- A **category** groups requests that follow the same workflow. Its workflow's **Send to a
+  desk** steps decide which **desk** handles its tickets; the category itself names no desk.
+- A **desk** is a team: it holds members and handles the tickets workflows send to it.
 
-Every installation starts with a **General** department and a **General** desk. Names are
-unique within their level, and a category always belongs to a desk.
+Every installation starts with a **General** desk. Folder names are unique among the folders
+that share a parent, ignoring case.
 
-**Catalog** manages the tree in place, and **Needs attention** lists desks with no agents and
-categories with no published workflow. Desk members need the agent role or higher. Deleting
-any node asks for confirmation and cannot be undone.
+**Categories** shows the whole catalog as one tree and edits it in place, without leaving it. Right-click a folder, a category or empty tree space (or press the menu key or Shift+F10 on a row, or on the tree for the top level) for the same actions:
+
+| To | Do this |
+| --- | --- |
+| Create | Use **New folder** or **New category** in the heading: they create where you have selected (inside the selected folder, or next to the selected category), or at the top level when nothing is selected. The popover shows **Create in: <folder>** with a ✕ (**Create at the top level instead**) to switch to the top level, and the tree expands to the new item. A folder's **+** creates inside that folder. Each opens a popover anchored to its button without moving rows. Right-click a folder or empty tree space and choose either action to open a popover anchored where you pointed. The heading buttons fix the kind; a folder's **+** (and the right-click menu) also offers a **Folder** / **Category** switch that keeps the name. Enter saves and readies another; Esc closes the popover from any control inside it. |
+| Rename | Edit the name in properties and save, or double-click a folder's name for inline editing. Enter saves the inline edit, Esc cancels. |
+| Move | Use **Move to…** in a row or context menu to search destinations, including the top level. Drag a row by its name (or by its handle on touch) onto a folder, or onto blank space in the catalog tree to move it to the top level. Use **Cut** in a row or context menu, then **Paste here** in a folder or blank-space context menu; alternatively use Ctrl+X (Cmd+X on macOS) on a row and Ctrl+V on a folder or the focused tree. A floating message at the bottom shows what is cut; Esc or its **Cancel** cancels. **Move…** is available in the row menu only without scripts. Every move offers **Undo** in a message that stays while you point at or focus it; Ctrl+Z (Cmd+Z on macOS) on the tree does the same while it is visible. |
+| Edit details | On a wide screen, select a folder or category to edit its properties in the permanent right inspector. Enter focuses its fields; the row has no pen here. **Save changes** keeps the inspector open; **Discard** restores the saved values. On a narrow screen, Enter or the row's pen opens an anchored popover above or below the row. On either screen, **Properties** in the row's ⋯ menu opens that row's editor; a category name remains a link to its workflow. Both views edit name and description, plus category suggestion keywords, and link to workflow and SLA configuration. Changing selection asks before discarding a draft; resizing preserves that draft. |
+
+Cut and Paste shortcuts are shown in the ⋯ menu (Ctrl+X and Ctrl+V; Cmd on macOS). Arrow keys navigate the tree. Text fields retain normal cut and paste.
+
+Tree rows omit ticket counts and workflow author names. Folder rows have no count or empty-state sub-line; deep rows keep their path.
+
+Folders and categories stay in alphabetical order, so moving means changing the folder, not the
+position. A folder can't move into itself or one of its own folders, and can only be deleted
+when it is empty. A refused change keeps what you typed and says why. Deleting asks for
+confirmation and cannot be undone. **Needs attention** lists categories with no published
+workflow and categories whose published workflow can't run.
+
+**Desks** has its own screen: it lists every desk with its agents, the categories whose
+published workflow sends tickets to it and its open tickets, and its drawer creates, renames and
+staffs a desk. Desk members need the agent role or higher. A desk still referenced by a
+workflow or assignment history cannot be deleted.
+
+Requesters only see folders that lead to a published category. A folder that holds a single
+folder and nothing else is skipped, and the full path is shown instead.
+
+Upgrading from a release with departments keeps every category where it was: each department
+becomes a folder and each desk a folder inside it, with the category in that folder. Folders
+copied from the starting **General** department and desk are removed when nothing was put in
+them.
 
 A category carries **Keywords for suggestions** for the local engine and **SLA** targets from
 the instance or its own. Its workflow must be published before it accepts tickets.
@@ -109,7 +139,7 @@ then the form with the category fixed.
 | Engine | Behavior |
 | --- | --- |
 | **Off** (the default) | No suggestions; the requester uses the catalog. |
-| **On this server** | Matches the text against category names, descriptions, and **Keywords for suggestions**, plus the names of the desk and department that hold each category. Nothing leaves tkt. |
+| **On this server** | Matches the text against category names, descriptions, and **Keywords for suggestions**, plus the names of the folders on its path. Desk names are not a suggestion source. Nothing leaves tkt. |
 | **Decision model** | Sends the text and the category list to an external endpoint that implements `POST /decisions`. |
 
 Suggestions are advisory: up to three, chosen by the requester, never applied automatically.

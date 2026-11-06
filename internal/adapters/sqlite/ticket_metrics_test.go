@@ -17,15 +17,14 @@ func TestTicketMetricsStoreUsesLastInPeriodResolutionAndCurrentAttribution(t *te
 	if err := s.DeskStore().Create(ctx, desk); err != nil {
 		t.Fatal(err)
 	}
-	category := &domain.Category{Name: "Metrics category", DeskID: desk.ID, CreatedAt: testClock}
-	if err := s.CategoryStore().Create(ctx, category); err != nil {
-		t.Fatal(err)
-	}
+	category := &domain.Category{Name: "Metrics category", CreatedAt: testClock}
+	createCategory(t, s, category)
 	agentID := seedUserRaw(t, s, "Metrics agent", "metrics-agent@example.com", "agent")
 	created := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO tickets(number,title,description,requester_name,requester_email,category_id,priority,state,user_id,created_at,updated_at) VALUES(1,'metric','', 'r','r@example.com',?,'medium','in_progress',?,?,?)`, category.ID, agentID, formatTime(created), formatTime(created)); err != nil {
 		t.Fatal(err)
 	}
+	appendMetricAssignment(t, s, 1, &desk.ID, created)
 	first := time.Date(2026, 3, 4, 10, 0, 0, 0, time.UTC)
 	last := time.Date(2026, 3, 5, 10, 0, 0, 0, time.UTC)
 	for _, at := range []time.Time{first, last} {
@@ -144,19 +143,20 @@ func TestTicketMetricsStoreRegressionCases(t *testing.T) {
 			},
 		},
 		{
-			name:   "current reassignment and category desk constrain filters",
+			name:   "current reassignment and workflow desk constrain filters",
 			filter: application.TicketMetricsFilter{Start: marchStart, End: marchEndExclusive},
 			arrange: func(t *testing.T, s *Store) {
-				oldDesk := seedMetricDesk(t, s, "Old desk")
+				seedMetricDesk(t, s, "Old desk")
 				newDesk := seedMetricDesk(t, s, "New desk")
-				oldCategory := seedMetricCategoryAtDesk(t, s, "Old category", oldDesk.ID)
-				newCategory := seedMetricCategoryAtDesk(t, s, "New category", newDesk.ID)
+				oldCategory := seedMetricCategory(t, s, "Old category")
+				newCategory := seedMetricCategory(t, s, "New category")
 				oldAgent := seedUserRaw(t, s, "Old agent", "old-agent@example.com", "agent")
 				newAgent := seedUserRaw(t, s, "New agent", "new-agent@example.com", "agent")
 				ticketID := insertMetricTicket(t, s, 1, oldCategory.ID, &oldAgent, domain.StateInProgress, formatTime(marchStart))
 				if _, err := s.db.ExecContext(context.Background(), `UPDATE tickets SET category_id = ?, user_id = ? WHERE id = ?`, newCategory.ID, newAgent, ticketID); err != nil {
 					t.Fatal(err)
 				}
+				appendMetricAssignment(t, s, ticketID, &newDesk.ID, marchStart)
 				insertMetricResolution(t, s, ticketID, marchStart.AddDate(0, 0, 5))
 			},
 			assert: func(t *testing.T, rows []application.TicketMetricsRecord) {
@@ -192,7 +192,7 @@ func TestTicketMetricsStoreRegressionCases(t *testing.T) {
 				t.Fatalf("TicketMetrics: %v", err)
 			}
 			tc.assert(t, rows)
-			if tc.name == "current reassignment and category desk constrain filters" {
+			if tc.name == "current reassignment and workflow desk constrain filters" {
 				if rows[0].DeskID == nil || rows[0].AgentID == nil {
 					t.Fatalf("current attribution IDs = %+v, want assigned desk and agent", rows[0])
 				}
@@ -241,15 +241,8 @@ func seedMetricDesk(t *testing.T, s *Store, name string) *domain.Desk {
 
 func seedMetricCategory(t *testing.T, s *Store, name string) *domain.Category {
 	t.Helper()
-	return seedMetricCategoryAtDesk(t, s, name, seedMetricDesk(t, s, name+" desk").ID)
-}
-
-func seedMetricCategoryAtDesk(t *testing.T, s *Store, name string, deskID int64) *domain.Category {
-	t.Helper()
-	category := &domain.Category{Name: name, DeskID: deskID, CreatedAt: testClock}
-	if err := s.CategoryStore().Create(context.Background(), category); err != nil {
-		t.Fatal(err)
-	}
+	category := &domain.Category{Name: name, CreatedAt: testClock}
+	createCategory(t, s, category)
 	return category
 }
 

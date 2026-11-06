@@ -771,54 +771,59 @@ type CategoryStore interface {
 	List(ctx context.Context) ([]domain.Category, error)
 }
 
-// CatalogStore persists the fixed-depth ticket catalog hierarchy. Category
-// workflow ownership remains in WorkflowStore and is never moved to a
-// Department or Desk.
+// CatalogStore reads the catalog's categories with the desk responsible for
+// each (issue #484). Where a category sits in the folder tree is FolderStore's;
+// workflow ownership stays in WorkflowStore.
 type CatalogStore interface {
-	ListDepartments(ctx context.Context) ([]domain.CatalogDepartment, error)
-	ListDesks(ctx context.Context, departmentID int64) ([]domain.CatalogDesk, error)
-	ListCatalogCategories(ctx context.Context, deskID int64) ([]domain.CatalogCategory, error)
+	// SearchCatalog lists the categories whose name or description
+	// contains query (every category for an empty query), ordered by name.
 	SearchCatalog(ctx context.Context, query string) ([]domain.CatalogCategory, error)
-	CreateDepartment(ctx context.Context, d *domain.Department) error
-	UpdateDepartment(ctx context.Context, d *domain.Department) error
-	DeleteDepartment(ctx context.Context, id int64) error
-	MoveCategory(ctx context.Context, categoryID, deskID int64) error
 }
 
-// CatalogTreeStore is the optional bounded-read projection the administration
-// catalog tree renders from (issue #387, S8). The tree used to fan out one
-// ListDesks call per department and still could not answer two questions the
-// rows now show, so the index costs a constant number of queries instead.
+// FolderStore persists the catalog's folder tree and where each category sits
+// in it (issue #484). The database enforces the tree's invariants, so every
+// writer gets the same answers:
+//   - CreateFolder and MoveFolder report *domain.DuplicateError{Kind:"folder"}
+//     when a sibling already has the name (case-insensitive) and
+//     *domain.NotFoundError{Kind:"folder"} when the parent is missing;
+//   - MoveFolder reports *domain.FolderCycleError when the new parent is the
+//     folder itself or one of its descendants;
+//   - DeleteFolder reports *domain.ReferencedError{Kind:"folder"} while the
+//     folder still holds a folder or a category.
+//
+// A refused write changes nothing. ParentID / folderID nil means top level.
+type FolderStore interface {
+	// ListFolders returns every folder ordered by name (case-insensitive), then id.
+	ListFolders(ctx context.Context) ([]domain.Folder, error)
+	GetFolder(ctx context.Context, id int64) (*domain.Folder, error)
+	CreateFolder(ctx context.Context, f *domain.Folder) error
+	// UpdateFolder writes the name and the description; it never moves the folder.
+	UpdateFolder(ctx context.Context, f *domain.Folder) error
+	MoveFolder(ctx context.Context, id int64, parentID *int64) error
+	DeleteFolder(ctx context.Context, id int64) error
+	// PlaceCategory puts a category in a folder, or at the top level with nil.
+	PlaceCategory(ctx context.Context, categoryID int64, folderID *int64) error
+	// CategoryFolders maps every category id to its folder id (nil = top level).
+	CategoryFolders(ctx context.Context) (map[int64]*int64, error)
+}
+
+// CatalogTreeStore is the optional bounded-read projection the Categories and
+// Desks screens render from (issue #387, S8): a constant number of queries for
+// the whole page.
 //
 // Both reads are presentation facts, which is why they live beside the catalog
 // hierarchy and not on the workflow store: the desk agent count deliberately
 // reuses the publish gate's predicate (active, agent or above) so the tree and
 // the gate can never disagree about who can take a ticket.
 type CatalogTreeStore interface {
-	// ListTreeDesks returns every desk with its department, category count,
-	// agent count and open-ticket count in ONE read. A legacy desk with no
-	// department is reported with DepartmentID 0 and DepartmentName
-	// "Unassigned", which is how the handler places it in its virtual group.
+	// ListTreeDesks returns every desk with its category count, agent count and
+	// open-ticket count in ONE read, ordered by name.
 	ListTreeDesks(ctx context.Context) ([]domain.CatalogDesk, error)
 	// ListDefaultSLACategories returns the ids of the categories whose
 	// materialized SLA matrix still equals the current instance defaults. A
 	// category absent from the result has custom targets (or none), which is the
 	// only distinction the tree draws.
 	ListDefaultSLACategories(ctx context.Context) ([]int64, error)
-}
-
-// CatalogDeskStore is the optional unified administration port implemented by
-// the production SQLite catalog store. It reuses the existing Desk records and
-// membership rows rather than creating a second persistence model.
-type CatalogDeskStore interface {
-	GetDeskByID(ctx context.Context, id int64) (*domain.Desk, error)
-	CreateDesk(ctx context.Context, d *domain.Desk) error
-	UpdateDesk(ctx context.Context, d *domain.Desk) error
-	DeleteDesk(ctx context.Context, id int64) error
-	ListDeskMembers(ctx context.Context, deskID int64) ([]domain.User, error)
-	ListEligibleDeskMembers(ctx context.Context) ([]domain.User, error)
-	AddDeskMember(ctx context.Context, deskID, userID int64, createdAt time.Time) error
-	RemoveDeskMember(ctx context.Context, deskID, userID int64) error
 }
 
 // DeskStore persists named desks and their N:N memberships. Membership is

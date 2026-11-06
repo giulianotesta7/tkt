@@ -9,6 +9,7 @@
  * (internal/adapters/http/handlers_comment_test.go).
  */
 
+import { expectPopoverInView } from "./helpers/popover.js";
 import { test, expect, type Page, type Request, type Route } from "@playwright/test";
 import { startServer, stopServer } from "../server-lifecycle.js";
 import {
@@ -129,6 +130,43 @@ test.describe("Ticket detail", () => {
   test.afterAll(async () => {
     await stopServer();
   });
+
+  for (const field of ["assign-user", "ticket-priority"] as const) {
+    test(`detail ${field} picker stays in the phone viewport`, async ({ page }) => {
+      await loginAsSeeded(page);
+      const id = await createTicketViaUi(page, { title: `Overlay ${field}`, category: "General" });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(base() + `/tickets/${id}`);
+      await page.locator(".detail-properties-summary").click();
+      const button = pickerButton(page, field);
+      const popover = picker(page, field).locator(".listbox-popover");
+      const value = await button.textContent();
+      const posts: string[] = [];
+      page.on("request", (request) => {
+        if (request.method() === "POST") posts.push(request.url());
+      });
+      await openPicker(page, field);
+      await expectPopoverInView(popover);
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((value) => {
+          document.documentElement.dataset.theme = value;
+        }, theme);
+        await page.evaluate(() => window.scrollBy(0, 20));
+        await expectPopoverInView(popover);
+      }
+      await page.setViewportSize({ width: 390, height: 600 });
+      await expectPopoverInView(popover);
+      await page.keyboard.press("ArrowDown");
+      await expect(popover.locator('[role="option"]:focus')).toHaveCount(1);
+      await page.keyboard.press("Escape");
+      await expect(popover).toBeHidden();
+      await expect(popover).not.toHaveAttribute("style");
+      await expect(button).toBeFocused();
+      await expect(button).toHaveAttribute("aria-expanded", "false");
+      await expect(button).toHaveText(value || "");
+      expect(posts).toEqual([]);
+    });
+  }
 
   test("mention search Enter never publishes an unmatched draft and keeps keyboard editing", async ({
     page,

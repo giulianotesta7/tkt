@@ -604,7 +604,9 @@ func defaultStep() domain.WorkflowStep {
 // typedAddStep builds the step appended by the add_step action from the optional
 // presentation-only add_step_type input. The value is strictly validated against
 // the closed domain set: absent, empty, or unknown values preserve the existing
-// default manual-step behavior, and each accepted type gets its closed payload.
+// default manual-step behavior, and each accepted type gets its closed payload;
+// an assign step starts with no desk, which the admin must choose before
+// publishing (issue #491, S1).
 func typedAddStep(d domain.WorkflowDefinition, raw string) domain.WorkflowStep {
 	switch typ := domain.StepType(strings.TrimSpace(raw)); typ {
 	case domain.StepAssignToDesk:

@@ -28,19 +28,15 @@ import (
 // and carries the reason.
 func TestCreateFallbackCategorySelectUsesThePickerRule(t *testing.T) {
 	h := newHarness(t)
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock).WithFolders(h.store.FolderStore())
 	mux := http.NewServeMux()
 	NewTicketHandlers(h.tickets, h.comments, h.search, h.categories, h.users, h.store.DeskStore(), h.workflows, application.NewWorkflowRunner(h.clock), h.store.WorkflowRunStore(), h.store.WorkflowUnitOfWork(), h.renderer, catalog).Register(mux)
 
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations department")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Support")
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Support")
 	if err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
-	unrunnable, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Onboarding", "New hire setup", desk.ID)
+	unrunnable, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Onboarding", "New hire setup")
 	if err != nil {
 		t.Fatalf("create category: %v", err)
 	}
@@ -52,7 +48,7 @@ func TestCreateFallbackCategorySelectUsesThePickerRule(t *testing.T) {
 		t.Fatalf("remove member: %v", err)
 	}
 	// A category with no published version, which must stay absent.
-	unpublished, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Refunds", "Money back", desk.ID)
+	unpublished, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Refunds", "Money back")
 	if err != nil {
 		t.Fatalf("create unpublished category: %v", err)
 	}

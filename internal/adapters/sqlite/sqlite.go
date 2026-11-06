@@ -218,8 +218,12 @@ func (s *Store) SearchStore() application.SearchStore { return newSearchStore(s.
 // task 5.4 is its first consumer — ticket forms and filters list categories.
 func (s *Store) CategoryStore() application.CategoryStore { return newCategoryStore(s.db) }
 
-// CatalogStore returns the Department/Desk/Category hierarchy port.
+// CatalogStore returns the catalog read port: categories, and desks with the
+// counts their published workflows give them.
 func (s *Store) CatalogStore() application.CatalogStore { return newCatalogStore(s.db) }
+
+// FolderStore returns the catalog folder tree adapter (issue #484).
+func (s *Store) FolderStore() application.FolderStore { return newFolderStore(s.db) }
 
 // CategorySuggestionIndex returns the ranked-candidate read port behind the local
 // category suggestion engine (issue #416, S4). It reads the FTS5 indexes migration

@@ -18,13 +18,10 @@ var _ application.DeskStore = (*deskStore)(nil)
 func newDeskStore(db *sql.DB) *deskStore { return &deskStore{db: db} }
 
 func (s *deskStore) Create(ctx context.Context, g *domain.Desk) error {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO desks (name, description, department_id, created_at) VALUES (?, ?, ?, ?)`, g.Name, g.Description, nullableInt64(g.DepartmentID), formatTime(g.CreatedAt))
+	res, err := s.db.ExecContext(ctx, `INSERT INTO desks (name, description, created_at) VALUES (?, ?, ?)`, g.Name, g.Description, formatTime(g.CreatedAt))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return &domain.DuplicateError{Kind: "desk", Name: g.Name}
-		}
-		if isForeignKeyViolation(err) && g.DepartmentID != nil {
-			return &domain.NotFoundError{Kind: "department", ID: *g.DepartmentID}
 		}
 		return fmt.Errorf("sqlite: create desk: %w", err)
 	}
@@ -36,7 +33,7 @@ func (s *deskStore) Create(ctx context.Context, g *domain.Desk) error {
 }
 
 func (s *deskStore) Update(ctx context.Context, g *domain.Desk) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE desks SET name = ?, description = ?, department_id = ? WHERE id = ?`, g.Name, g.Description, nullableInt64(g.DepartmentID), g.ID)
+	res, err := s.db.ExecContext(ctx, `UPDATE desks SET name = ?, description = ? WHERE id = ?`, g.Name, g.Description, g.ID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return &domain.DuplicateError{Kind: "desk", Name: g.Name}
@@ -47,15 +44,88 @@ func (s *deskStore) Update(ctx context.Context, g *domain.Desk) error {
 }
 
 func (s *deskStore) Delete(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM desks WHERE id = ?`, id)
+	// Hold SQLite's writer reservation across the reference reads and delete.
+	// Workflow/audit writers cannot insert a reference between the check and
+	// deletion, even when they use another connection.
+	tx, err := beginImmediate(ctx, s.db, "delete desk")
 	if err != nil {
+		return fmt.Errorf("sqlite: delete desk begin: %w", err)
+	}
+	defer tx.Rollback()
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM desks WHERE id = ?)`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("sqlite: delete desk existence: %w", err)
+	}
+	if !exists {
+		return &domain.NotFoundError{Kind: "desk", ID: id}
+	}
+	var audited bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM audit_events WHERE desk_id = ?)`, id).Scan(&audited); err != nil {
+		return fmt.Errorf("sqlite: delete desk audit references: %w", err)
+	}
+	if audited {
+		return &domain.ReferencedError{Kind: "desk", ID: id}
+	}
+	referenced, err := workflowReferencesDesk(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if referenced {
+		return &domain.ReferencedError{Kind: "desk", ID: id}
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM desks WHERE id = ?`, id)
+	if err != nil {
+		// Every remaining reference to a desk cascades or is set to NULL since
+		// categories stopped naming one (#491); a violation here would be a new
+		// restricting reference, so it still reads as "in use", never as a fault.
+		if isForeignKeyViolation(err) {
+			return &domain.ReferencedError{Kind: "desk", ID: id}
+		}
 		return fmt.Errorf("sqlite: delete desk: %w", err)
 	}
-	return rowsFound(res, "desk", id)
+	if err := rowsFound(res, "desk", id); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("sqlite: delete desk commit: %w", err)
+	}
+	return nil
+}
+
+// All immutable versions matter, not just the current pointer: older versions
+// can still be pinned by tickets. Decode with the domain parser rather than
+// matching JSON text (which could confuse IDs or instructional prose). Broken
+// stored JSON fails closed, without deleting a potentially referenced desk.
+func workflowReferencesDesk(ctx context.Context, tx *sql.Tx, id int64) (bool, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT draft_json FROM category_workflows WHERE draft_json IS NOT NULL
+		UNION ALL SELECT steps_json FROM workflow_versions`)
+	if err != nil {
+		return false, fmt.Errorf("sqlite: delete desk workflow references: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return false, fmt.Errorf("sqlite: delete desk scan workflow: %w", err)
+		}
+		def, err := domain.ParseWorkflowDefinition(raw)
+		if err != nil {
+			return false, fmt.Errorf("sqlite: delete desk parse workflow: %w", err)
+		}
+		for _, step := range def {
+			if step.Type == domain.StepAssignToDesk && step.AssignToDesk != nil && step.AssignToDesk.DeskID == id {
+				return true, nil
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("sqlite: delete desk workflow rows: %w", err)
+	}
+	return false, nil
 }
 
 func (s *deskStore) GetByID(ctx context.Context, id int64) (*domain.Desk, error) {
-	g, err := scanDesk(s.db.QueryRowContext(ctx, `SELECT id, name, description, department_id, created_at FROM desks WHERE id = ?`, id))
+	g, err := scanDesk(s.db.QueryRowContext(ctx, `SELECT id, name, description, created_at FROM desks WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, &domain.NotFoundError{Kind: "desk", ID: id}
 	}
@@ -63,7 +133,7 @@ func (s *deskStore) GetByID(ctx context.Context, id int64) (*domain.Desk, error)
 }
 
 func (s *deskStore) List(ctx context.Context) ([]domain.Desk, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, department_id, created_at FROM desks ORDER BY id ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, created_at FROM desks ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list desks: %w", err)
 	}
@@ -135,12 +205,8 @@ func (s *deskStore) ListMembers(ctx context.Context, deskID int64) ([]domain.Use
 func scanDesk(scan rowScanner) (*domain.Desk, error) {
 	var g domain.Desk
 	var createdAt string
-	var departmentID sql.NullInt64
-	if err := scan.Scan(&g.ID, &g.Name, &g.Description, &departmentID, &createdAt); err != nil {
+	if err := scan.Scan(&g.ID, &g.Name, &g.Description, &createdAt); err != nil {
 		return nil, err
-	}
-	if departmentID.Valid {
-		g.DepartmentID = &departmentID.Int64
 	}
 	var err error
 	g.CreatedAt, err = time.Parse(timeLayout, createdAt)

@@ -614,11 +614,39 @@ var templateFuncs = template.FuncMap{
 		return "TKT-" + strconv.Itoa(n)
 	},
 	"initials": initialsOf,
-	"categoryDepartmentValue": func(id int64) string {
-		if id == -1 {
-			return "unassigned"
+	// Categories screen helpers (issue #484): a folder or category row paired
+	// with the view state its links and forms return to, and that state as a
+	// query string or the URL of one folder.
+	"catalogNode": func(row catalogFolderRow, state categoryViewState) catalogNodeContext {
+		return catalogNodeContext{Row: row, State: state}
+	},
+	"catalogCat": func(row catalogCategoryRow, state categoryViewState) catalogCategoryContext {
+		return catalogCategoryContext{Row: row, State: state}
+	},
+	// dict builds a map from alternating keys and values, so a template can
+	// pass several named arguments to a sub-template.
+	"dict": func(pairs ...any) map[string]any {
+		out := make(map[string]any, len(pairs)/2)
+		for i := 0; i+1 < len(pairs); i += 2 {
+			if key, ok := pairs[i].(string); ok {
+				out[key] = pairs[i+1]
+			}
 		}
-		return strconv.FormatInt(id, 10)
+		return out
+	},
+	"inc": func(i int) int { return i + 1 },
+	// catalogLink appends the view state to a drawer route, so the drawer and
+	// the mutation it submits return to the view it was opened from.
+	"catalogLink": func(path string, state categoryViewState) string {
+		query := strings.TrimPrefix(strings.TrimPrefix(categoryStatePath(state), "/categories"), "?")
+		switch {
+		case query == "":
+			return path
+		case strings.Contains(path, "?"):
+			return path + "&" + query
+		default:
+			return path + "?" + query
+		}
 	},
 	"hasDesk": func(desks []domain.Desk, id int64) bool {
 		for _, d := range desks {

@@ -381,9 +381,10 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	// the real pending store, so the tab, its count and the bulk approval all run
 	// through the real use case.
 	NewUserHandlers(usersSvc, renderer).WithPendingUsers(application.NewPendingUsersService(s.PendingUserStore(), clock)).Register(mux)
-	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock)).WithSettings(s.SettingsStore()).Register(mux)
+	catalogSvc := application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock).WithFolders(s.FolderStore())
+	NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(s.SettingsStore()).WithFolders(application.NewFolderService(s.FolderStore(), clock)).Register(mux)
 	NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
-	NewDeskHandlers(deskSvc, renderer).Register(mux)
+	NewDeskHandlers(deskSvc, renderer).WithCatalog(catalogSvc).Register(mux)
 	oauthSvc := application.NewOAuthService(s.OAuthStore(), s.UserStore(), s.EmailSettingsStore(), clock, nil)
 	NewSettingsHandlers(settingsSvc, slaSvc, s.SLAStore(), s.SettingsStore(), renderer).WithInstance(application.NewInstanceSettingsService(s.InstanceSettingsStore(), clock)).WithEmail(emailSettingsSvc).WithOrganization(application.NewOrganizationService(s.OrganizationStore())).WithSignin(signinSvc).WithPasswordSettings(passwordSettingsSvc).WithCategorySuggestions(suggestionSettingsSvc, suggestionSvc, ticketHandlers).WithCompanySignIn(companySettingsSvc).WithAPIAccess(application.NewAPIAccessService(s.APIAccessStore(), s.UserStore(), clock, nil)).WithOAuth(oauthSvc, s.EmailSettingsStore()).Register(mux)
 	NewCategorySLAHandlers(catSvc, slaSvc, s.SLAStore(), renderer).Register(mux)
@@ -408,7 +409,7 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 		renderer: renderer,
 		mux:      mux, mw: mw,
 		handler: NewAPIHandlers(application.NewAPIAccessService(s.APIAccessStore(), s.UserStore(), clock, nil), clock).
-			WithReads(APIReadServices{Tickets: ticketSvc, Search: searchSvc, Categories: catSvc, Users: usersSvc, Catalog: application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock), Workflows: workflowSvc, Versions: s.WorkflowVersionStore(), Runs: s.WorkflowRunStore()}).
+			WithReads(APIReadServices{Tickets: ticketSvc, Search: searchSvc, Categories: catSvc, Users: usersSvc, Catalog: application.NewCatalogService(s.CatalogStore(), s.CategoryStore(), clock).WithFolders(s.FolderStore()), Workflows: workflowSvc, Versions: s.WorkflowVersionStore(), Runs: s.WorkflowRunStore()}).
 			WithWrites(APIWriteServices{Comments: commentSvc, Runner: application.NewWorkflowRunner(clock).WithFollowers(followSvc), Workflow: s.WorkflowUnitOfWork()}).
 			Branch(oauthHandlers.Branch(mw.Wrap(NewBodyLimitMiddleware().Wrap(mux)))),
 	}
@@ -438,27 +439,19 @@ func newHarnessWithAdmin(t *testing.T, seedAdmin bool) *harness {
 	return h
 }
 
-// seededDesk resolves the compatibility Department/Desk pair migration 0011
-// creates ("General"/"General"). A catalog-aware category route needs both, since
-// that is what the drawer submits; these tests assert the create/rename/delete
-// contracts, not the drawer's preselection.
-func (h *harness) seededDesk(t *testing.T) (departmentID, deskID int64) {
+// seededDesk resolves the compatibility "General" desk migration 0011 creates.
+// A category route needs a desk, since that is what the drawer submits; these
+// tests assert the create/rename/delete contracts, not the drawer's preselection.
+func (h *harness) seededDesk(t *testing.T) int64 {
 	t.Helper()
-	departments, err := h.store.CatalogStore().ListDepartments(t.Context())
+	desks, err := h.store.DeskStore().List(t.Context())
 	if err != nil {
-		t.Fatalf("list departments: %v", err)
+		t.Fatalf("list desks: %v", err)
 	}
-	for _, department := range departments {
-		desks, err := h.store.CatalogStore().ListDesks(t.Context(), department.ID)
-		if err != nil {
-			t.Fatalf("list desks: %v", err)
-		}
-		if len(desks) > 0 {
-			return department.ID, desks[0].ID
-		}
+	if len(desks) == 0 {
+		t.Fatal("no seeded desk")
 	}
-	t.Fatal("no seeded desk")
-	return 0, 0
+	return desks[0].ID
 }
 
 // get runs an authenticated GET through the middleware-wrapped mux.

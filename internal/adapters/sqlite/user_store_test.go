@@ -1155,9 +1155,7 @@ func TestUserStoreServiceUsersAreNotPeople(t *testing.T) {
 	list, err := users.List(ctx)
 	onlyPerson("List", list, err)
 	list, err = users.ListActive(ctx)
-	onlyPerson("ListActive", list, err)
-	list, err = newCatalogStore(s.db).ListEligibleDeskMembers(ctx)
-	onlyPerson("ListEligibleDeskMembers", list, err)
+	onlyPerson("ListActive", list, err) // also the desk membership picker's source
 	list, err = s.CompanyIdentityStore().UsersByEmail(ctx, "TRIAGE@service.invalid")
 	if err != nil || len(list) != 0 {
 		t.Errorf("UsersByEmail(service) = %+v (err %v), want no match", list, err)

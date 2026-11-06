@@ -22,7 +22,11 @@ type TicketMetricsFilter struct {
 }
 
 // TicketMetricsRecord is the single-row projection returned by the metrics read
-// port. Attribution is current assignment and category desk, never historical.
+// port. Agent attribution is current assignment. Desk attribution is the active
+// pinned workflow's pending claim desk, otherwise the latest workflow_assignment
+// audit's desk ordered by occurrence time and ID. Responsibility persists through
+// non-desk steps and completion until another assignment; absent trustworthy
+// evidence it is nil, never inferred from category or agent membership.
 type TicketMetricsRecord struct {
 	TicketID       int64
 	CreatedAt      time.Time

@@ -49,9 +49,10 @@ Sign in as root.
    support address.
 2. **Settings → Instance** (root only): the public **TKT address**, the default interface language,
    and the read-only tkt version. Personal language choices stay in **Preferences**.
-3. **Catalog**: a department groups desks, a desk groups categories and their agents, and a
-   category groups requests that follow one workflow. Create a department, a desk and a category,
-   open the category's workflow, add a step and publish it.
+3. **Desks** and **Categories**: a desk is a team of agents, folders group categories, and a
+   category groups requests that follow one workflow, whose steps send them to a desk.
+   Create a desk, then a category (in a folder if you like), open the category's workflow,
+   add a step and publish it.
 4. **Users**: create the accounts that work on tickets, give them the **Agent** role, and add them
    to the desk. People who only report problems need the **User** role and no desk.
 5. **Settings → Security**: the minimum password length and the two self-service switches (change

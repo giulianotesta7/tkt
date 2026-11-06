@@ -100,7 +100,7 @@ func TestAPIReadCategories(t *testing.T) {
 			byID[item["id"].(float64)] = item
 		}
 		bug := byID[float64(f.h.bugCategory.ID)]
-		if bug["name"] != "Bugs" || bug["desk"] != "General" || bug["department"] != "General" || byID[float64(noForm.ID)]["requester_form"] != nil {
+		if bug["name"] != "Bugs" || !reflect.DeepEqual(bug["folder_path"], []any{}) || byID[float64(noForm.ID)]["requester_form"] != nil {
 			t.Fatalf("category shapes = %#v", items)
 		}
 		want := map[string]any{"position": float64(1), "fields": []any{

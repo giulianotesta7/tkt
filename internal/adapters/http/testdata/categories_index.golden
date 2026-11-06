@@ -6,7 +6,8 @@
 <meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
 <title>Catalog · Help desk</title>
 
-<link rel="stylesheet" href="/static/users.css?v=VERSION"><script src="/static/categories.js?v=VERSION" defer></script><script src="/static/save-feedback.js?v=VERSION" defer></script><script src="/static/htmx.min.js?v=VERSION" defer></script><script src="/static/notifications.js?v=VERSION" defer></script><script src="/static/shell.js?v=VERSION" defer></script>
+<script src="/static/overlay.js?v=VERSION" defer></script>
+<link rel="stylesheet" href="/static/users.css?v=VERSION"><script src="/static/categories.js?v=VERSION" defer></script><script src="/static/catalog-tree.js?v=VERSION" defer></script><script src="/static/save-feedback.js?v=VERSION" defer></script><script src="/static/htmx.min.js?v=VERSION" defer></script><script src="/static/notifications.js?v=VERSION" defer></script><script src="/static/shell.js?v=VERSION" defer></script>
 </head>
 <body class="users-page-body ">
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -68,126 +69,96 @@
   <button class="save-feedback-dismiss" type="button" aria-label="Dismiss confirmation">Dismiss</button>
 </div>
 
-<div class="users-root categories-root"><div id="categories-background">
+<div class="users-root categories-root" data-list-url="/categories"><div id="categories-background" class="catalog-screen">
   <header class="users-header command-header">
     <div>
       <h1 class="command-title">Catalog</h1>
+      <p class="users-help">Group categories in folders. Each category&#39;s workflow decides which desk works it.</p>
     </div>
     <div class="command-actions">
+      <button class="btn ghost" type="button" data-catalog-header-create="category" hidden>New category</button>
+      <button class="btn ghost" type="button" data-catalog-header-create="folder" hidden>New folder</button>
       <button class="btn ghost" type="button" data-catalog-expand-toggle data-expand-label="Expand all" data-collapse-label="Collapse all">Collapse all</button>
-      <nav class="catalog-new" aria-label="Catalog creation">
-        <button class="btn primary" type="button" data-catalog-new-toggle data-category-menu data-focus-key="catalog-new" aria-controls="catalog-new-menu" aria-expanded="false">New</button>
-        <div id="catalog-new-menu" class="category-overflow-menu" aria-label="Catalog creation" hidden>
-          <a class="category-drawer-launcher" data-focus-key="new-department" href="/categories/departments/new?view=structure" hx-get="/categories/departments/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/new?view=structure">New department</a>
-          <a class="category-drawer-launcher" data-focus-key="new-desk" href="/categories/desks/new?view=structure" hx-get="/categories/desks/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure">New desk</a>
-          <a class="category-drawer-launcher" data-focus-key="new-category" href="/categories/new?view=structure" hx-get="/categories/new?view=structure" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure">New category</a>
-        </div>
-      </nav>
+      <noscript>
+      <a class="btn ghost category-drawer-launcher" data-focus-key="new-category" data-catalog-create="category" href="/categories/new?folder_id=1&amp;folder=1" hx-get="/categories/new?folder_id=1&amp;folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?folder_id=1&amp;folder=1">New category</a>
+      <a class="btn primary category-drawer-launcher" data-catalog-new-toggle data-focus-key="new-folder" data-catalog-create="folder" href="/categories/folders/new?parent_id=1&amp;folder=1" hx-get="/categories/folders/new?parent_id=1&amp;folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/folders/new?parent_id=1&amp;folder=1">New folder</a>
+      </noscript>
     </div>
   </header>
 
   <div class="catalog-toolbar">
     <form class="category-search search-field" method="get" action="/categories" role="search">
-      <label class="visually-hidden" for="category-search">Search departments, desks, or categories</label>
+      <label class="visually-hidden" for="category-search">Search folders and categories</label>
       <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
-      <input id="category-search" type="search" name="q" value="" placeholder="Search departments, desks, or categories" autocomplete="off">
-      <input type="hidden" name="view" value="">
+      <input id="category-search" type="search" name="q" value="" placeholder="Search folders and categories" autocomplete="off">
+      <input type="hidden" name="folder" value="1">
       <button class="visually-hidden" type="submit">Search</button>
     </form>
-    <a class="catalog-attention-chip" href="/categories?attention=1">Needs attention · 3</a>
+    <a class="catalog-attention-chip" href="/categories?attention=1&amp;folder=1">Needs attention · 1</a>
   </div>
+  <template id="catalog-move-folders"></template>
+  <div class="catalog-workspace">
   <section class="catalog-tree-region" aria-labelledby="catalog-tree-title">
-    <h2 id="catalog-tree-title" class="catalog-structure-title">Catalog structure</h2>
-    <div class="catalog-tree">
-      <ul class="catalog-tree-list catalog-tree-departments" aria-label="Departments">
-        <li class="catalog-tree-node catalog-tree-department" data-catalog-node data-catalog-slug="d2" data-catalog-id="2" data-level="department">
-          <div class="catalog-tree-row catalog-tree-row-department">
-            <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-d2" aria-label="Collapse Support" data-catalog-name="Support"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
-            <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
-            <span class="catalog-node-name">Support</span>
-            <span class="catalog-node-description">Customer support</span>
-            <span class="catalog-node-meta">1 desk</span>
-            <span class="catalog-node-spacer"></span>
-            <div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="department-actions-2" aria-controls="department-menu-2" aria-expanded="false" aria-label="Actions for Support">⋯</button><div id="department-menu-2" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/departments/2/edit?view=structure&department_id=2" hx-get="/categories/departments/2/edit?view=structure&department_id=2" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/2/edit?view=structure&department_id=2">Edit department</a><a class="category-drawer-launcher" role="menuitem" href="/categories/desks/new?view=structure&department_id=2" hx-get="/categories/desks/new?view=structure&department_id=2" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure&department_id=2">Add desk</a><form method="post" action="/categories/departments/2/delete" hx-post="/categories/departments/2/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="2"><button class="category-menu-danger" role="menuitem" data-category-delete="department" data-delete-confirm="Delete the department “Support”?" type="submit">Delete department</button></form></div></div>
-          </div>
-          <ul class="catalog-tree-list" id="catalog-d2" aria-label="Desks">
-            <li class="catalog-tree-node catalog-tree-desk" data-catalog-node data-catalog-slug="k3" data-catalog-id="3" data-level="desk">
-              <div class="catalog-tree-row catalog-tree-row-desk">
-                <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
-                <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h20"/><path d="M4 8v12"/><path d="M20 8v12"/><path d="M14 8v5h6"/></svg>
-                <span class="catalog-node-name">Helpdesk</span>
-                <span class="catalog-badge catalog-badge-none">No agents</span>
-                <span class="catalog-node-meta">1 open</span>
-                <span class="catalog-node-spacer"></span>
-                <div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="desk-actions-3" aria-controls="desk-menu-3" aria-expanded="false" aria-label="Actions for Helpdesk">⋯</button><div id="desk-menu-3" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/desks/3/edit?view=structure&department_id=2&desk_id=3" hx-get="/categories/desks/3/edit?view=structure&department_id=2&desk_id=3" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/3/edit?view=structure&department_id=2&desk_id=3">Edit desk</a><a class="category-drawer-launcher" role="menuitem" href="/categories/new?view=structure&department_id=2&desk_id=3" hx-get="/categories/new?view=structure&department_id=2&desk_id=3" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure&department_id=2&desk_id=3">Add category</a><form method="post" action="/categories/desks/3/delete" hx-post="/categories/desks/3/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="2"><input type="hidden" name="desk_id" value="3"><button class="category-menu-danger" role="menuitem" data-category-delete="desk" data-delete-confirm="Delete the desk “Helpdesk”?" type="submit">Delete desk</button></form></div></div>
-              </div>
-            </li>
-          </ul>
-        </li>
-        <li class="catalog-tree-node catalog-tree-department" data-catalog-node data-catalog-slug="d1" data-catalog-id="1" data-level="department" data-current="true">
-          <div class="catalog-tree-row catalog-tree-row-department" aria-current="true">
-            <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-d1" aria-label="Collapse Technology" data-catalog-name="Technology"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
-            <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
-            <span class="catalog-node-name">Technology</span>
-            <span class="catalog-node-description">Engineering and platform</span>
-            <span class="catalog-node-meta">2 desks</span>
-            <span class="catalog-node-spacer"></span>
-            <div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="department-actions-1" aria-controls="department-menu-1" aria-expanded="false" aria-label="Actions for Technology">⋯</button><div id="department-menu-1" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/departments/1/edit?view=structure&department_id=1" hx-get="/categories/departments/1/edit?view=structure&department_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/departments/1/edit?view=structure&department_id=1">Edit department</a><a class="category-drawer-launcher" role="menuitem" href="/categories/desks/new?view=structure&department_id=1" hx-get="/categories/desks/new?view=structure&department_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/new?view=structure&department_id=1">Add desk</a><form method="post" action="/categories/departments/1/delete" hx-post="/categories/departments/1/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="1"><button class="category-menu-danger" role="menuitem" data-category-delete="department" data-delete-confirm="Delete the department “Technology”?" type="submit">Delete department</button></form></div></div>
-          </div>
-          <ul class="catalog-tree-list" id="catalog-d1" aria-label="Desks">
-            <li class="catalog-tree-node catalog-tree-desk" data-catalog-node data-catalog-slug="k2" data-catalog-id="2" data-level="desk">
-              <div class="catalog-tree-row catalog-tree-row-desk">
-                <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
-                <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h20"/><path d="M4 8v12"/><path d="M20 8v12"/><path d="M14 8v5h6"/></svg>
-                <span class="catalog-node-name">Platform</span>
-                <span class="catalog-badge catalog-badge-none">No agents</span>
-                <span class="catalog-node-meta">0 open</span>
-                <span class="catalog-node-spacer"></span>
-                <div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="desk-actions-2" aria-controls="desk-menu-2" aria-expanded="false" aria-label="Actions for Platform">⋯</button><div id="desk-menu-2" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/desks/2/edit?view=structure&department_id=1&desk_id=2" hx-get="/categories/desks/2/edit?view=structure&department_id=1&desk_id=2" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/2/edit?view=structure&department_id=1&desk_id=2">Edit desk</a><a class="category-drawer-launcher" role="menuitem" href="/categories/new?view=structure&department_id=1&desk_id=2" hx-get="/categories/new?view=structure&department_id=1&desk_id=2" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure&department_id=1&desk_id=2">Add category</a><form method="post" action="/categories/desks/2/delete" hx-post="/categories/desks/2/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="1"><input type="hidden" name="desk_id" value="2"><button class="category-menu-danger" role="menuitem" data-category-delete="desk" data-delete-confirm="Delete the desk “Platform”?" type="submit">Delete desk</button></form></div></div>
-              </div>
-            </li>
-            <li class="catalog-tree-node catalog-tree-desk" data-catalog-node data-catalog-slug="k1" data-catalog-id="1" data-level="desk" data-current="true">
-              <div class="catalog-tree-row catalog-tree-row-desk" aria-current="true">
-                <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-k1" aria-label="Collapse Service desk" data-catalog-name="Service desk"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
-                <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h20"/><path d="M4 8v12"/><path d="M20 8v12"/><path d="M14 8v5h6"/></svg>
-                <span class="catalog-node-name">Service desk</span>
-                <span class="catalog-node-meta">3 agents</span>
-                <span class="catalog-node-meta">4 open</span>
-                <span class="catalog-node-spacer"></span>
-                <div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="desk-actions-1" aria-controls="desk-menu-1" aria-expanded="false" aria-label="Actions for Service desk">⋯</button><div id="desk-menu-1" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/desks/1/edit?view=structure&department_id=1&desk_id=1" hx-get="/categories/desks/1/edit?view=structure&department_id=1&desk_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/desks/1/edit?view=structure&department_id=1&desk_id=1">Edit desk</a><a class="category-drawer-launcher" role="menuitem" href="/categories/new?view=structure&department_id=1&desk_id=1" hx-get="/categories/new?view=structure&department_id=1&desk_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?view=structure&department_id=1&desk_id=1">Add category</a><form method="post" action="/categories/desks/1/delete" hx-post="/categories/desks/1/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="1"><input type="hidden" name="desk_id" value="1"><button class="category-menu-danger" role="menuitem" data-category-delete="desk" data-delete-confirm="Delete the desk “Service desk”?" type="submit">Delete desk</button></form></div></div>
-              </div>
-              <ul class="catalog-tree-list" id="catalog-k1" aria-label="Categories">
-                <li class="catalog-tree-node catalog-tree-category" data-catalog-id="1" data-level="category" data-desk-id="1" data-current="true">
-                  <div class="catalog-tree-row catalog-tree-row-category" aria-current="true">
-                    <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
-                    <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
-                    <a class="catalog-node-name catalog-category-link" href="/categories/1/workflow">Bugs</a>
-                    <span class="catalog-badge catalog-badge-ok">Workflow v1</span>
-                    <span class="catalog-node-meta">Default SLA</span>
-                    <span class="catalog-node-meta">3 open</span>
-                    <span class="catalog-node-spacer"></span>
-                    <div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="category-actions-1" aria-controls="category-menu-1" aria-expanded="false" aria-label="Actions for Bugs">⋯</button><div id="category-menu-1" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/1/edit?view=structure&department_id=1&desk_id=1" hx-get="/categories/1/edit?view=structure&department_id=1&desk_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/1/edit?view=structure&department_id=1&desk_id=1">Edit category</a><a role="menuitem" href="/categories/1/workflow">Configure workflow</a><a role="menuitem" href="/categories/1/sla">Configure SLA</a><form method="post" action="/categories/1/delete" hx-post="/categories/1/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="1"><input type="hidden" name="desk_id" value="1"><button class="category-menu-danger" role="menuitem" data-category-delete="category" data-delete-confirm="Delete the category “Bugs”?" type="submit">Delete category</button></form></div></div>
-                  </div>
-                </li>
-                <li class="catalog-tree-node catalog-tree-category" data-catalog-id="2" data-level="category" data-desk-id="1" data-current="true">
-                  <div class="catalog-tree-row catalog-tree-row-category" aria-current="true">
-                    <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
-                    <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
-                    <a class="catalog-node-name catalog-category-link" href="/categories/2/workflow">Support</a>
-                    <span class="catalog-badge catalog-badge-neutral">Draft</span>
-                    <span class="catalog-node-meta">Custom SLA</span>
-                    <span class="catalog-node-meta">1 open</span>
-                    <span class="catalog-node-spacer"></span>
-                    <div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="category-actions-2" aria-controls="category-menu-2" aria-expanded="false" aria-label="Actions for Support">⋯</button><div id="category-menu-2" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/categories/2/edit?view=structure&department_id=1&desk_id=1" hx-get="/categories/2/edit?view=structure&department_id=1&desk_id=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/2/edit?view=structure&department_id=1&desk_id=1">Edit category</a><a role="menuitem" href="/categories/2/workflow">Configure workflow</a><a role="menuitem" href="/categories/2/sla">Configure SLA</a><form method="post" action="/categories/2/delete" hx-post="/categories/2/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="view" value="structure"><input type="hidden" name="department_id" value="1"><input type="hidden" name="desk_id" value="1"><button class="category-menu-danger" role="menuitem" data-category-delete="category" data-delete-confirm="Delete the category “Support”?" type="submit">Delete category</button></form></div></div>
-                  </div>
-                </li>
-              </ul>
-            </li>
-          </ul>
-        </li>
-      </ul>
+    <h2 id="catalog-tree-title" class="visually-hidden">Catalog structure</h2>
+    <div class="catalog-tree catalog-folder-tree">
+      <ul class="catalog-tree-list catalog-tree-root" data-create-folder-url="/categories/folders" data-create-category-url="/categories" role="tree" aria-label="Catalog structure">
+<li class="catalog-tree-node catalog-tree-folder" data-catalog-node data-catalog-slug="f3" data-catalog-id="3" data-level="folder" data-depth="1" role="treeitem" aria-level="1" aria-selected="false" aria-expanded="true" data-parent-id="0" data-name="Facilities" data-rename-url="/categories/folders/3/rename" data-move-url="/categories/folders/3/move" data-details-url="/categories/folders/3/details" data-delete-url="/categories/folders/3/delete" data-create-folder-url="/categories/folders" data-create-category-url="/categories">
+  <div class="catalog-tree-row catalog-tree-row-folder">
+    <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+    <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+    <span class="catalog-node-main"><span id="catalog-name-folder-3" class="catalog-node-name">Facilities</span></span>
+    <span class="catalog-node-spacer"></span>
+    <div class="catalog-row-actions"><button class="category-menu-button catalog-add-button" type="button" data-catalog-add aria-label="Add to Facilities">+</button>
+    <button class="category-menu-button catalog-details-button" type="button" data-catalog-pen aria-label="Details: Facilities">✎</button><div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="folder-actions-3" aria-controls="folder-menu-3" aria-expanded="false" aria-label="Actions for Facilities">⋯</button><div id="folder-menu-3" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" data-catalog-create="folder" role="menuitem" href="/categories/folders/new?parent_id=3&amp;folder=1" hx-get="/categories/folders/new?parent_id=3&amp;folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/folders/new?parent_id=3&amp;folder=1">New folder</a><a class="category-drawer-launcher" data-catalog-create="category" role="menuitem" href="/categories/new?folder_id=3&amp;folder=1" hx-get="/categories/new?folder_id=3&amp;folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?folder_id=3&amp;folder=1">New category</a><a class="category-drawer-launcher" data-catalog-cut role="menuitem" href="/categories/folders/3/move?folder=1" hx-get="/categories/folders/3/move?folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/folders/3/move?folder=1">Move…</a><form method="post" action="/categories/folders/3/delete" hx-post="/categories/folders/3/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="folder" value="1"><button class="category-menu-danger" role="menuitem" data-category-delete="folder" data-delete-confirm="Delete the folder “Facilities”?" type="submit">Delete folder</button></form></div></div></div><noscript><a href="/categories/folders/3/edit">Rename folder</a> <a href="/categories/folders/3/move">Move…</a></noscript>
+  </div>
+</li><li class="catalog-tree-node catalog-tree-folder" data-catalog-node data-catalog-slug="f1" data-catalog-id="1" data-level="folder" data-depth="1" role="treeitem" aria-level="1" aria-selected="false" aria-expanded="true" data-parent-id="0" data-name="IT services" data-rename-url="/categories/folders/1/rename" data-move-url="/categories/folders/1/move" data-details-url="/categories/folders/1/details" data-delete-url="/categories/folders/1/delete" data-create-folder-url="/categories/folders" data-create-category-url="/categories">
+  <div class="catalog-tree-row catalog-tree-row-folder">
+    <button class="catalog-disclosure" type="button" data-catalog-disclosure aria-expanded="true" aria-controls="catalog-f1" aria-label="Collapse IT services" data-catalog-name="IT services"><span class="catalog-disclosure-mark" aria-hidden="true"></span></button>
+    <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+    <span class="catalog-node-main"><span id="catalog-name-folder-1" class="catalog-node-name">IT services</span><span class="catalog-node-sub">Laptops and access</span></span>
+    <span class="catalog-node-spacer"></span>
+    <div class="catalog-row-actions"><button class="category-menu-button catalog-add-button" type="button" data-catalog-add aria-label="Add to IT services">+</button>
+    <button class="category-menu-button catalog-details-button" type="button" data-catalog-pen aria-label="Details: IT services">✎</button><div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="folder-actions-1" aria-controls="folder-menu-1" aria-expanded="false" aria-label="Actions for IT services">⋯</button><div id="folder-menu-1" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" data-catalog-create="folder" role="menuitem" href="/categories/folders/new?parent_id=1&amp;folder=1" hx-get="/categories/folders/new?parent_id=1&amp;folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/folders/new?parent_id=1&amp;folder=1">New folder</a><a class="category-drawer-launcher" data-catalog-create="category" role="menuitem" href="/categories/new?folder_id=1&amp;folder=1" hx-get="/categories/new?folder_id=1&amp;folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?folder_id=1&amp;folder=1">New category</a><a class="category-drawer-launcher" data-catalog-cut role="menuitem" href="/categories/folders/1/move?folder=1" hx-get="/categories/folders/1/move?folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/folders/1/move?folder=1">Move…</a><form method="post" action="/categories/folders/1/delete" hx-post="/categories/folders/1/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="folder" value="1"><button class="category-menu-danger" role="menuitem" data-category-delete="folder" data-delete-confirm="Delete the folder “IT services”?" type="submit">Delete folder</button></form></div></div></div><noscript><a href="/categories/folders/1/edit">Rename folder</a> <a href="/categories/folders/1/move">Move…</a></noscript>
+  </div>
+  <ul class="catalog-tree-list" role="group" id="catalog-f1" aria-label="IT services">
+<li class="catalog-tree-node catalog-tree-folder" data-catalog-node data-catalog-slug="f2" data-catalog-id="2" data-level="folder" data-depth="2" role="treeitem" aria-level="2" aria-selected="false" aria-expanded="true" data-parent-id="1" data-name="Hardware" data-rename-url="/categories/folders/2/rename" data-move-url="/categories/folders/2/move" data-details-url="/categories/folders/2/details" data-delete-url="/categories/folders/2/delete" data-create-folder-url="/categories/folders" data-create-category-url="/categories">
+  <div class="catalog-tree-row catalog-tree-row-folder">
+    <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+    <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6l2 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+    <span class="catalog-node-main"><span id="catalog-name-folder-2" class="catalog-node-name">Hardware</span></span>
+    <span class="catalog-node-spacer"></span>
+    <div class="catalog-row-actions"><button class="category-menu-button catalog-add-button" type="button" data-catalog-add aria-label="Add to Hardware">+</button>
+    <button class="category-menu-button catalog-details-button" type="button" data-catalog-pen aria-label="Details: Hardware">✎</button><div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="folder-actions-2" aria-controls="folder-menu-2" aria-expanded="false" aria-label="Actions for Hardware">⋯</button><div id="folder-menu-2" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" data-catalog-create="folder" role="menuitem" href="/categories/folders/new?parent_id=2&amp;folder=1" hx-get="/categories/folders/new?parent_id=2&amp;folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/folders/new?parent_id=2&amp;folder=1">New folder</a><a class="category-drawer-launcher" data-catalog-create="category" role="menuitem" href="/categories/new?folder_id=2&amp;folder=1" hx-get="/categories/new?folder_id=2&amp;folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/new?folder_id=2&amp;folder=1">New category</a><a class="category-drawer-launcher" data-catalog-cut role="menuitem" href="/categories/folders/2/move?folder=1" hx-get="/categories/folders/2/move?folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/folders/2/move?folder=1">Move…</a><form method="post" action="/categories/folders/2/delete" hx-post="/categories/folders/2/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="folder" value="1"><button class="category-menu-danger" role="menuitem" data-category-delete="folder" data-delete-confirm="Delete the folder “Hardware”?" type="submit">Delete folder</button></form></div></div></div><noscript><a href="/categories/folders/2/edit">Rename folder</a> <a href="/categories/folders/2/move">Move…</a></noscript>
+  </div>
+</li><li class="catalog-tree-node catalog-tree-category" data-catalog-id="2" data-level="category" data-depth="2" role="treeitem" aria-level="2" aria-selected="false" data-parent-id="1" data-name="Access" data-rename-url="/categories/2/rename" data-move-url="/categories/2/move" data-details-url="/categories/2/details" data-delete-url="/categories/2/delete">
+  <div class="catalog-tree-row catalog-tree-row-category">
+    <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+    <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+    <span class="catalog-node-main"><a id="catalog-name-category-2" class="catalog-node-name catalog-category-link" href="/categories/2/workflow">Access</a><span class="catalog-node-sub">Accounts and passwords</span></span>
+    <span class="catalog-node-spacer"></span>
+    <span class="catalog-badge catalog-badge-neutral">Draft</span>
+    <span class="catalog-node-meta">Custom SLA</span>
+
+    <noscript><a href="/categories/2/edit">Edit category</a> <a href="/categories/2/workflow">Configure workflow</a> <a href="/categories/2/move">Move…</a></noscript><div class="catalog-row-actions"><button class="category-menu-button catalog-details-button" type="button" data-catalog-pen aria-label="Details: Access">✎</button><div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="category-actions-2" aria-controls="category-menu-2" aria-expanded="false" aria-label="Actions for Access">⋯</button><div id="category-menu-2" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" data-catalog-cut role="menuitem" href="/categories/2/move?folder=1" hx-get="/categories/2/move?folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/2/move?folder=1">Move…</a><form method="post" action="/categories/2/delete" hx-post="/categories/2/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="folder" value="1"><button class="category-menu-danger" role="menuitem" data-category-delete="category" data-delete-confirm="Delete the category “Access”?" type="submit">Delete category</button></form></div></div></div>
+  </div>
+</li><li class="catalog-tree-node catalog-tree-category" data-catalog-id="1" data-level="category" data-depth="2" role="treeitem" aria-level="2" aria-selected="false" data-parent-id="1" data-name="Bugs" data-rename-url="/categories/1/rename" data-move-url="/categories/1/move" data-details-url="/categories/1/details" data-delete-url="/categories/1/delete">
+  <div class="catalog-tree-row catalog-tree-row-category">
+    <span class="catalog-disclosure catalog-disclosure-empty" aria-hidden="true"></span>
+    <svg class="catalog-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+    <span class="catalog-node-main"><a id="catalog-name-category-1" class="catalog-node-name catalog-category-link" href="/categories/1/workflow">Bugs</a><span class="catalog-node-sub">Defects and regressions</span></span>
+    <span class="catalog-node-spacer"></span>
+    <span class="catalog-badge catalog-badge-ok">Workflow v1</span>
+    <span class="catalog-node-meta">Default SLA</span>
+
+    <noscript><a href="/categories/1/edit">Edit category</a> <a href="/categories/1/workflow">Configure workflow</a> <a href="/categories/1/move">Move…</a></noscript><div class="catalog-row-actions"><button class="category-menu-button catalog-details-button" type="button" data-catalog-pen aria-label="Details: Bugs">✎</button><div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="category-actions-1" aria-controls="category-menu-1" aria-expanded="false" aria-label="Actions for Bugs">⋯</button><div id="category-menu-1" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" data-catalog-cut role="menuitem" href="/categories/1/move?folder=1" hx-get="/categories/1/move?folder=1" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/categories/1/move?folder=1">Move…</a><form method="post" action="/categories/1/delete" hx-post="/categories/1/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><input type="hidden" name="folder" value="1"><button class="category-menu-danger" role="menuitem" data-category-delete="category" data-delete-confirm="Delete the category “Bugs”?" type="submit">Delete category</button></form></div></div></div>
+  </div>
+</li>  </ul>
+</li>      </ul>
+      <div id="catalog-live" aria-live="polite" class="visually-hidden"></div>
     </div>
   </section>
+  <aside class="catalog-inspector" role="region" aria-label="Properties"><p class="users-help catalog-inspector-empty">Select a folder or category to edit its properties.</p><div data-catalog-inspector></div></aside>
+  </div>
 </div><div id="category-drawer-host"></div>
 <dialog id="category-delete-dialog" aria-labelledby="category-delete-title" aria-describedby="category-delete-copy">
   <h2 id="category-delete-title"></h2>

@@ -66,19 +66,15 @@ func pickerRow(body, marker string) string {
 // reason the admin's categories screen shows.
 func TestCatalogUnavailableCategoryStaysVisibleAndExplainsItself(t *testing.T) {
 	h := newHarness(t)
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock).WithFolders(h.store.FolderStore())
 	mux := http.NewServeMux()
 	NewTicketHandlers(h.tickets, h.comments, h.search, h.categories, h.users, h.store.DeskStore(), h.workflows, application.NewWorkflowRunner(h.clock), h.store.WorkflowRunStore(), h.store.WorkflowUnitOfWork(), h.renderer, catalog).Register(mux)
 
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations department")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Support")
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Support")
 	if err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
-	category, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Onboarding", "New hire setup", desk.ID)
+	category, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Onboarding", "New hire setup")
 	if err != nil {
 		t.Fatalf("create category: %v", err)
 	}
@@ -86,10 +82,11 @@ func TestCatalogUnavailableCategoryStaysVisibleAndExplainsItself(t *testing.T) {
 	// the category starts out healthy.
 	h.publishWorkflow(t, category.ID, assignToDeskDef(desk.ID))
 
-	deskQuery := "department_id=" + strconv.FormatInt(department.ID, 10) + "&desk_id=" + strconv.FormatInt(desk.ID, 10)
+	// The category sits at the top level, which the catalog opens on.
+	topLevel := ""
 	categoryRef := "category_id=" + strconv.FormatInt(category.ID, 10)
 
-	healthy := catalogPickerPage(t, h, mux, deskQuery)
+	healthy := catalogPickerPage(t, h, mux, topLevel)
 	if !strings.Contains(healthy, `class="create-card" href="/tickets/new?category_id=`) || !strings.Contains(healthy, categoryRef) {
 		t.Fatalf("a runnable category must be offered as a card that opens the form:\n%s", healthy)
 	}
@@ -103,7 +100,7 @@ func TestCatalogUnavailableCategoryStaysVisibleAndExplainsItself(t *testing.T) {
 		t.Fatalf("remove member: %v", err)
 	}
 
-	broken := catalogPickerPage(t, h, mux, deskQuery)
+	broken := catalogPickerPage(t, h, mux, topLevel)
 	if !strings.Contains(broken, "Onboarding") {
 		t.Fatal("an unrunnable category must stay visible in the picker, not vanish")
 	}
@@ -144,19 +141,15 @@ func TestCatalogUnavailableCategoryStaysVisibleAndExplainsItself(t *testing.T) {
 // Go layer, where the failure costs seconds instead of minutes.
 func TestCatalogPickerIsReachableByAPlainRequester(t *testing.T) {
 	h := newHarness(t)
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock).WithFolders(h.store.FolderStore())
 	mux := http.NewServeMux()
 	NewTicketHandlers(h.tickets, h.comments, h.search, h.categories, h.users, h.store.DeskStore(), h.workflows, application.NewWorkflowRunner(h.clock), h.store.WorkflowRunStore(), h.store.WorkflowUnitOfWork(), h.renderer, catalog).Register(mux)
 
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations department")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Support")
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Support")
 	if err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
-	category, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Onboarding", "New hire setup", desk.ID)
+	category, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Onboarding", "New hire setup")
 	if err != nil {
 		t.Fatalf("create category: %v", err)
 	}
@@ -197,19 +190,15 @@ func TestCatalogPickerIsReachableByAPlainRequester(t *testing.T) {
 // it stays out of the picker entirely.
 func TestCatalogUnpublishedCategoryStaysAbsent(t *testing.T) {
 	h := newHarness(t)
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock).WithFolders(h.store.FolderStore())
 	mux := http.NewServeMux()
 	NewTicketHandlers(h.tickets, h.comments, h.search, h.categories, h.users, h.store.DeskStore(), h.workflows, application.NewWorkflowRunner(h.clock), h.store.WorkflowRunStore(), h.store.WorkflowUnitOfWork(), h.renderer, catalog).Register(mux)
 
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations department")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Support")
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Support")
 	if err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
-	draftOnly, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Refunds", "Money back", desk.ID)
+	draftOnly, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Refunds", "Money back")
 	if err != nil {
 		t.Fatalf("create category: %v", err)
 	}

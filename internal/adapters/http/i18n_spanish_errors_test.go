@@ -2,7 +2,6 @@ package httpadapter
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
@@ -19,12 +18,7 @@ func TestSpanishNewlyKeyedErrorsFollowTheInstanceLanguage(t *testing.T) {
 	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
 		t.Fatalf("set interface language: %v", err)
 	}
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
-	dep, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Soporte", "")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, dep.ID, "Mesa")
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Mesa")
 	if err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
@@ -34,7 +28,7 @@ func TestSpanishNewlyKeyedErrorsFollowTheInstanceLanguage(t *testing.T) {
 		form       url.Values
 		want       string
 	}{
-		{"empty category name", "/categories", url.Values{"name": {""}, "department_id": {strconv.FormatInt(dep.ID, 10)}, "desk_id": {strconv.FormatInt(desk.ID, 10)}}, "el nombre de la categoría es obligatorio"},
+		{"empty category name", "/categories", url.Values{"name": {""}, "desk_id": {strconv.FormatInt(desk.ID, 10)}}, "el nombre de la categoría es obligatorio"},
 		{"invalid role", "/users/" + strconv.FormatInt(h.admin.ID, 10) + "/edit", url.Values{"name": {"Admin"}, "email": {"admin@tkt.test"}, "role": {"bogus"}}, "rol no válido"},
 		{"empty comment body", "/tickets/" + strconv.FormatInt(tkt.ID, 10) + "/comments", url.Values{"body": {""}, "visibility": {"public"}}, "el texto del comentario es obligatorio"},
 		{"empty title", "/tickets/" + strconv.FormatInt(tkt.ID, 10) + "/edit", url.Values{"title": {""}}, "el título es obligatorio"},
@@ -56,15 +50,9 @@ func TestSpanishNewlyKeyedErrorsFollowTheInstanceLanguage(t *testing.T) {
 	if languageRec.Code != http.StatusUnprocessableEntity || !strings.Contains(languageRec.Body.String(), "idioma de la interfaz no válido") {
 		t.Errorf("invalid interface language: status %d", languageRec.Code)
 	}
-	deskMux := http.NewServeMux()
-	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(deskMux)
-	deskReq := httptest.NewRequest(http.MethodPost, "/categories/desks", strings.NewReader(url.Values{"department_id": {strconv.FormatInt(dep.ID, 10)}, "name": {""}}.Encode()))
-	deskReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	deskReq.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
-	deskRec := httptest.NewRecorder()
-	h.mw.Wrap(deskMux).ServeHTTP(deskRec, deskReq)
-	if body := deskRec.Body.String(); !strings.Contains(body, "el nombre de la mesa es obligatorio") {
-		t.Errorf("empty desk name: %d: %.600s", deskRec.Code, body)
+	folderRec := h.postForm(t, "/categories/folders", url.Values{"name": {"  "}}, false)
+	if body := folderRec.Body.String(); !strings.Contains(body, "el nombre de la carpeta es obligatorio") {
+		t.Errorf("empty folder name: %d: %.600s", folderRec.Code, body)
 	}
 	rec := h.get(t, "/tickets/metrics?metrics_start=2026-13-99", false)
 	if body := rec.Body.String(); !strings.Contains(body, "las fechas de las métricas deben usar AAAA-MM-DD") {

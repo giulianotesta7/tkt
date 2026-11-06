@@ -1,0 +1,10 @@
+{{define "title"}}{{if .Drawer}}{{if .Drawer.ID}}{{tf "base.title.screen" (t "categories.edit_desk") (brandHelpDesk .Brand)}}{{else}}{{tf "base.title.screen" (t "categories.new_desk") (brandHelpDesk .Brand)}}{{end}}{{else}}{{tf "base.title.screen" (t "base.nav.desks") (brandHelpDesk .Brand)}}{{end}}{{end}}
+{{define "content"}}
+<div class="users-root categories-root desks-root" data-list-url="/desks">{{template "desks_background" .}}<div id="category-drawer-host">{{if .Drawer}}{{template "category_drawer" .Drawer}}{{end}}</div>
+<dialog id="category-delete-dialog" aria-labelledby="category-delete-title" aria-describedby="category-delete-copy">
+  <h2 id="category-delete-title"></h2>
+  <p id="category-delete-copy">{{t "desks.delete_confirm.body"}}</p>
+  <div><button type="button" data-category-delete-cancel>{{t "common.cancel"}}</button><button type="button" data-category-delete-confirm>{{t "desks.delete_confirm.confirm"}}</button></div>
+</dialog>
+</div>
+{{end}}

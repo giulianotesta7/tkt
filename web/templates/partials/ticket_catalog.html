@@ -1,21 +1,17 @@
 {{/*
-  The two-step service catalog (issue #391, S4): a search box, then one section
-  per department holding category cards — the category's name with the desk that
-  holds it as the caption. A card links to the shared form with its category
-  fixed, and a published category that cannot run stays visible, disabled, with
-  its reason, exactly as it appears in the single-page picker (S5).
+  The two-step service catalog (issue #391, S4; issue #484): a search box, a
+  breadcrumb, then one folder level at a time — the folders that offer something
+  below them, then the categories of this level. A folder card opens the deepest
+  folder of a single-child chain, so a requester never clicks through a folder
+  with only one way on. A category card links to the shared form with its
+  category fixed, and a published category that cannot run stays visible,
+  disabled, with its reason, exactly as it appears in the single-page picker.
 
-  The search has two halves and one rule (catalogMatches): the server marks the
-  cards a ?q filters out with the hidden attribute, so the no-script path shows
-  only the matches, and ticket_create.js applies the same rule live as the
-  requester types.
-
-  With a category-suggestion engine on (issue #416, S2), the same box also accepts
-  a full description. A "Suggested" group then renders above the departments and
-  refreshes into its own container as the requester types; the categories it names
-  are left out of their department below, so one category is offered once. A
-  description that names no card keeps the whole catalog visible instead of the
-  no-match message (S3) — the departments are still the way to choose by hand.
+  Search flattens the tree: while the box holds text, the level is hidden and
+  the flat list of every category (with its folder path) is filtered instead.
+  The server marks the results a ?q filters out with the hidden attribute, so
+  the no-script path shows only the matches, and ticket_create.js applies the
+  same rule live (catalogMatches). Suggestions are categories only.
 */}}
 {{define "ticket_catalog"}}{{if .CreateAssets}}<script src="{{asset "/static/ticket_create.js"}}" defer></script>{{end}}
 <div class="create-catalog">
@@ -34,20 +30,30 @@
   <div class="create-catalog-sections" data-create-catalog>
 {{if .SuggestionsEnabled}}    <div class="create-suggestion-loading" id="create-suggestion-loading" data-suggestion-loading role="status" aria-live="polite" aria-atomic="true" hidden><span class="create-suggestion-spinner" aria-hidden="true"></span><span>{{t "tickets.suggest.loading"}}</span></div>
     <div class="create-catalog-suggested" id="create-catalog-suggestions" aria-live="polite">{{template "category_suggestion_tiles" .}}</div>
-{{end}}{{range .Sections}}    <section class="create-catalog-department-group"{{if .Hidden}} hidden{{end}}>
-      <h2 class="create-catalog-department">{{.Name}}</h2>
+{{end}}    <section class="create-catalog-level" data-catalog-level{{if .Searching}} hidden{{end}}>
+      <nav class="create-catalog-crumbs" aria-label="{{t "tickets.catalog.path"}}">{{range $i, $c := .Crumbs}}{{if $i}}<span class="create-catalog-crumb-sep" aria-hidden="true">›</span>{{end}}{{if eq (len $.Crumbs) (inc $i)}}<span aria-current="page">{{if $c.Name}}{{$c.Name}}{{else}}{{t "tickets.catalog.all"}}{{end}}</span>{{else}}<a href="{{$c.URL}}">{{if $c.Name}}{{$c.Name}}{{else}}{{t "tickets.catalog.all"}}{{end}}</a>{{end}}{{end}}</nav>
+{{if .BackURL}}      <a href="{{.BackURL}}" class="btn ghost create-catalog-back">{{t "tickets.catalog.up"}}</a>
+{{end}}      <div class="create-catalog-grid">
+{{range .Folders}}        <a class="create-card create-folder-card" href="/tickets/new?folder={{.ID}}">
+          <span class="create-card-name">{{.Name}}</span>
+          <span class="create-card-desk">{{tp "tickets.catalog.option_count" .Count}}</span>
+        </a>
+{{end}}{{range .Cards}}{{template "create_catalog_card" .}}{{end}}      </div>
+    </section>
+    <section class="create-catalog-results" data-catalog-flat{{if not .Searching}} hidden{{end}}>
       <div class="create-catalog-grid">
-{{range .Cards}}{{if .Unavailable}}        <div class="create-card create-card-unavailable" aria-disabled="true"{{if .Hidden}} hidden{{end}}>
+{{range .Results}}{{template "create_catalog_card" .}}{{end}}      </div>
+    </section>
+  </div>
+{{if .Empty}}  <p class="create-catalog-empty">{{t "tickets.catalog.no_categories"}}</p>
+{{else}}  <p class="create-catalog-empty" data-catalog-no-match{{if not .NoMatch}} hidden{{end}}>{{t "tickets.catalog.no_match"}}</p>
+{{end}}</div>{{end}}
+{{define "create_catalog_card"}}{{if .Unavailable}}        <div class="create-card create-card-unavailable" aria-disabled="true"{{if .Hidden}} hidden{{end}} data-catalog-text="{{.Name}} {{.Description}} {{.Caption}}">
           <span class="create-card-name">{{.Name}}</span>
           <span class="create-card-desk">{{msg .Reason}}</span>
         </div>
-{{else}}        <a class="create-card" href="/tickets/new?category_id={{.ID}}"{{if .Hidden}} hidden{{end}}>
+{{else}}        <a class="create-card" href="/tickets/new?category_id={{.ID}}"{{if .Hidden}} hidden{{end}} data-catalog-text="{{.Name}} {{.Description}} {{.Caption}}">
           <span class="create-card-name">{{.Name}}</span>
-          <span class="create-card-desk">{{.DeskName}}</span>
+          <span class="create-card-desk">{{.Caption}}</span>
         </a>
-{{end}}{{end}}      </div>
-    </section>
-{{end}}  </div>
-{{if .NoMatch}}  <p class="create-catalog-empty">{{t "tickets.catalog.no_match"}}</p>
-{{else if not .Sections}}  <p class="create-catalog-empty">{{t "tickets.catalog.no_categories"}}</p>
-{{end}}</div>{{end}}
+{{end}}{{end}}

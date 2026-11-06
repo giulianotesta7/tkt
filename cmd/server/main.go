@@ -131,7 +131,7 @@ func main() {
 	apiAccessSvc := application.NewAPIAccessService(store.APIAccessStore(), store.UserStore(), clock, nil)
 	userSvc := application.NewUserService(store.UserStore(), clock).WithPasswordSettings(store.PasswordSettingsStore()).WithPasswordChangeStore(store.PasswordChangeStore()).WithCompanySignIn(store.CompanySignInSettingsStore())
 	catSvc := application.NewCategoryService(store.CategoryStore(), clock)
-	catalogSvc := application.NewCatalogService(store.CatalogStore(), store.CategoryStore(), clock)
+	catalogSvc := application.NewCatalogService(store.CatalogStore(), store.CategoryStore(), clock).WithFolders(store.FolderStore())
 	deskSvc := application.NewDeskService(store.DeskStore(), store.UserStore(), clock)
 	slaSvc := application.NewSLAService(store.SLAStore(), store.SettingsStore(), clock)
 	// Issue #418: following a ticket and mentioning a staff member in a comment.
@@ -218,9 +218,9 @@ func main() {
 	// waiting and approves a selected batch through its own store port.
 	userHandlers := httpadapter.NewUserHandlers(userSvc, renderer)
 	userHandlers.WithPendingUsers(application.NewPendingUsersService(store.PendingUserStore(), clock)).Register(mux)
-	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).Register(mux)
+	httpadapter.NewCategoryHandlersWithWorkflows(catSvc, workflowSvc, renderer, catalogSvc).WithSettings(store.SettingsStore()).WithFolders(application.NewFolderService(store.FolderStore(), clock)).Register(mux)
 	httpadapter.NewCategoryWorkflowHandlers(catSvc, workflowSvc, deskSvc, renderer).Register(mux)
-	httpadapter.NewDeskHandlers(deskSvc, renderer).Register(mux)
+	httpadapter.NewDeskHandlers(deskSvc, renderer).WithCatalog(catalogSvc).Register(mux)
 	// Issue #493: the OAuth service also backs the MCP switch in Settings → API
 	// and Connected apps in Preferences.
 	oauthSvc := application.NewOAuthService(store.OAuthStore(), store.UserStore(), store.EmailSettingsStore(), clock, nil)

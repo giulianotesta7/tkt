@@ -200,7 +200,7 @@ func TestMigrateCreatesSchema(t *testing.T) {
 	want := []string{
 		"users", "sessions", "categories", "tickets",
 		"comments", "audit_events", "desks", "desk_members",
-		"role_changes", "settings", "notifications", "ticket_visits", "schema_migrations",
+		"role_changes", "settings", "notifications", "ticket_visits", "folders", "schema_migrations",
 	}
 	for _, name := range want {
 		var n int
@@ -219,7 +219,7 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		t.Fatalf("schema_migrations: %v", err)
 	}
 	if applied != len(wantMigrationVersions) {
-		t.Errorf("schema_migrations rows = %d, want %d (every embedded migration, through 0042_oauth_mcp)", applied, len(wantMigrationVersions))
+		t.Errorf("schema_migrations rows = %d, want %d (every embedded migration, through 0048_drop_category_desk)", applied, len(wantMigrationVersions))
 	}
 
 	rows, err := s.db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
@@ -246,13 +246,15 @@ func TestMigrateCreatesSchema(t *testing.T) {
 // this one, 0035 was never assigned, and 0031 (category suggestions, issue #416)
 // was assigned its number before 0029 and 0030 landed. 0033 (replies, followers
 // and mentions, issue #418), 0034 (company sign-in, issue #419), 0036 (root
-// password rotation, issue #414) and 0037 (service users and API keys, issue
-// #488), plus 0038 (audit API key attribution, issue #489), are all here: a merge of branches, not a
-// renumbering. 0039 to 0041 are reserved by the category branches (issues
-// #484, #487, #491); 0042 (OAuth grants for MCP, issue #493) skips them. The runner sorts and applies whatever files are embedded, so the
-// recorded set is exactly this list — an absent number is not a hole a later
-// migration can collide with.
-var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34, 36, 37, 38, 39, 42}
+// password rotation, issue #414), 0037 (service users and API keys, issue
+// #488), 0038 (audit API key attribution, issue #489), 0039 (instance
+// address) and 0042 (OAuth grants for MCP, issue #493) are all here: a merge of
+// branches, not a renumbering. 0043 to 0048 (catalog folders, departments and
+// the category desk leaving, issues #484, #487, #491) follow main's 0042: they
+// were renumbered when both branches reached main. The runner sorts and applies
+// whatever files are embedded, so the recorded set is exactly this list — an
+// absent number is not a hole a later migration can collide with.
+var wantMigrationVersions = []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34, 36, 37, 38, 39, 42, 43, 44, 45, 46, 47, 48}
 
 func TestMigrateRerunIsNoOp(t *testing.T) {
 	s := newTestDB(t)

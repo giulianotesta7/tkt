@@ -7,9 +7,8 @@ import "time"
 // assignment is added later, it must choose the active eligible member with
 // the fewest assigned tickets (user-ID tiebreak) and persist that person.
 type Desk struct {
-	ID           int64
-	Name         string
-	Description  string
-	DepartmentID *int64
-	CreatedAt    time.Time
+	ID          int64
+	Name        string
+	Description string
+	CreatedAt   time.Time
 }

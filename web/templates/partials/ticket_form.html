@@ -11,7 +11,7 @@
     - a fixed category with a Change link, which is the form a service-catalog
       card opens (S4);
     - the picker, a native <select> grouped one <optgroup> per
-      "Department › Desk" (S3). Without a script it is a plain select that
+      folder path (S3; issue #484). Without a script it is a plain select that
       works; with one, ticket_create.js turns it into the detail's listbox with
       a search field. It never submits and never saves on change.
 
@@ -58,7 +58,7 @@
           <div class="prop-heading">{{t "tickets.form.properties"}}</div>
           <div class="prop-row"><span class="prop-label">{{t "tickets.form.requester"}}</span><span class="prop-value">{{.CurrentUser.Name}}</span></div>
 {{if .CategoryFixed}}          <input type="hidden" name="category_id" value="{{.Selected.ID}}">
-          <div class="prop-row"><span class="prop-label">{{t "tickets.form.category"}}</span><span class="prop-value selected-catalog-path"><span>{{.Selected.DepartmentName}} / {{.Selected.DeskName}} / {{.Selected.Name}}</span><a href="{{.CatalogHref}}">{{t "tickets.form.change"}}</a></span></div>
+          <div class="prop-row"><span class="prop-label">{{t "tickets.form.category"}}</span><span class="prop-value selected-catalog-path"><span>{{range .Selected.FolderPath}}{{.}} › {{end}}{{.Selected.Name}}</span><a href="{{.CatalogHref}}">{{t "tickets.form.change"}}</a></span></div>
 {{else}}          <div class="prop-row"><span class="prop-label" id="create-category-label">{{t "tickets.form.category"}}</span><span class="prop-control create-picker" data-create-picker data-picker-search="{{t "tickets.form.category_search"}}" data-picker-empty="{{t "tickets.form.category_no_match"}}"><select id="category_id" name="category_id" class="prop-select" required aria-labelledby="create-category-label"><option value="">{{t "tickets.form.select_category"}}</option>{{range .CategoryGroups}}{{if .Label}}<optgroup label="{{.Label}}">{{end}}{{range .Options}}{{if .Unavailable}}<option value="{{.ID}}" disabled>{{.Name}} — {{msg .Reason}}</option>{{else}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $.Values.CategoryID}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}{{if .Label}}</optgroup>{{end}}{{end}}</select></span></div>
 {{if .SuggestionsEnabled}}          <div class="create-suggestion-loading" id="create-suggestion-loading" data-suggestion-loading role="status" aria-live="polite" aria-atomic="true" hidden><span class="create-suggestion-spinner" aria-hidden="true"></span><span>{{t "tickets.suggest.loading"}}</span></div>
           <div class="create-suggestions-live" data-suggestion-status="create-suggestion-loading" hx-sync="this:replace" aria-live="polite" hx-get="/tickets/suggestions?mode=single" hx-trigger="input changed delay:500ms from:#title, input changed delay:500ms from:#description" hx-include="#title, #description" hx-target="this" hx-swap="innerHTML"></div>

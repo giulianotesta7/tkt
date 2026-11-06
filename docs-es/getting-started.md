@@ -51,9 +51,10 @@ Iniciá sesión como root.
    de ayuda y el correo de soporte.
 2. **Configuración → Instancia** (solo root): la **Dirección de TKT** pública, el idioma
    predeterminado y la versión de tkt de solo lectura. El idioma personal sigue en **Preferencias**.
-3. **Catálogo**: un departamento agrupa mesas, una mesa agrupa categorías y a sus agentes, y una
-   categoría agrupa solicitudes que siguen un mismo flujo. Creá un departamento, una mesa y una
-   categoría, abrí el flujo de la categoría, agregá un paso y publicalo.
+3. **Mesas** y **Categorías**: una mesa es un equipo de agentes, las carpetas agrupan
+   categorías, y una categoría agrupa pedidos que siguen un mismo flujo, cuyos pasos los envían a
+   una mesa. Creá una mesa, después una categoría (en una carpeta si querés), abrí el flujo de la
+   categoría, agregá un paso y publicalo.
 4. **Usuarios**: creá las cuentas que trabajan en tickets, dales el rol **Agente** y sumalas a la
    mesa. Quien solo reporta problemas necesita el rol **Usuario** y ninguna mesa.
 5. **Configuración → Seguridad**: la longitud mínima de las contraseñas nuevas y los dos

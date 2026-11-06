@@ -1,7 +1,6 @@
 package httpadapter
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giulianotesta7/tkt/internal/application"
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
@@ -114,23 +112,13 @@ func TestS1EveryScreenNamesItselfInTheDocumentTitle(t *testing.T) {
 func TestS1EveryRouteNamesItsScreen(t *testing.T) {
 	h := newHarness(t)
 	user := h.createUser(t, "Dana Requester", "dana@tkt.test", "SuperSecret42!")
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Service desk")
+	folder := seedFolder(t, h, nil, "Operations")
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Service desk")
 	if err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
-	// The harness registers the category handlers without the catalog
-	// projection, so the desk and department drawers need the production
-	// composition; the users routes come from the harness mux.
-	catalogMux := http.NewServeMux()
-	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(catalogMux)
-
 	id := func(value int64) string { return strconv.FormatInt(value, 10) }
-	structure := "?view=structure&department_id=" + id(department.ID)
+	bugs := id(h.bugCategory.ID)
 	cases := []struct {
 		mux  *http.ServeMux
 		path string
@@ -139,13 +127,16 @@ func TestS1EveryRouteNamesItsScreen(t *testing.T) {
 		{h.mux, "/users", "Users · Help desk"},
 		{h.mux, "/users/new", "New user · Help desk"},
 		{h.mux, "/users/" + id(user.ID) + "/edit", "Edit user · Help desk"},
-		{catalogMux, "/categories?view=structure", "Catalog · Help desk"},
-		{catalogMux, "/categories/new?view=structure", "New category · Help desk"},
-		{catalogMux, "/categories/" + id(h.bugCategory.ID) + "/edit?view=structure", "Rename category · Help desk"},
-		{catalogMux, "/categories/desks/new" + structure, "New desk · Help desk"},
-		{catalogMux, "/categories/desks/" + id(desk.ID) + "/edit" + structure + "&desk_id=" + id(desk.ID), "Edit desk · Help desk"},
-		{catalogMux, "/categories/departments/new?view=structure", "New department · Help desk"},
-		{catalogMux, "/categories/departments/" + id(department.ID) + "/edit?view=structure&department_id=" + id(department.ID), "Edit department · Help desk"},
+		{h.mux, "/categories", "Catalog · Help desk"},
+		{h.mux, "/categories/new", "New category · Help desk"},
+		{h.mux, "/categories/" + bugs + "/edit", "Edit category · Help desk"},
+		{h.mux, "/categories/" + bugs + "/move", "Move “Bugs” · Help desk"},
+		{h.mux, "/categories/folders/new", "New folder · Help desk"},
+		{h.mux, "/categories/folders/" + id(folder) + "/edit", "Edit folder · Help desk"},
+		{h.mux, "/categories/folders/" + id(folder) + "/move", "Move “Operations” · Help desk"},
+		{h.mux, "/desks", "Desks · Help desk"},
+		{h.mux, "/desks/new", "New desk · Help desk"},
+		{h.mux, "/desks/" + id(desk.ID) + "/edit", "Edit desk · Help desk"},
 	}
 	seen := map[string]string{}
 	for _, tc := range cases {
@@ -308,183 +299,36 @@ func TestS5SkipLinkAndCurrentRailLink(t *testing.T) {
 	}
 }
 
-// TestS6RefusedDeleteKeepsTheStructureSelection is S6's server half: a delete
-// the store refuses answers with the translated error and the structure view
-// the operator was on — same department, same desk — instead of a landing page
-// on the POST URL. The confirmation dialog itself is browser behaviour and is
-// covered by e2e/tests/categories.spec.ts.
-func TestS6RefusedDeleteKeepsTheStructureSelection(t *testing.T) {
-	h := newHarness(t)
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Service desk")
-	if err != nil {
-		t.Fatalf("create desk: %v", err)
-	}
-	// A category in the desk makes the desk referenced, so the store refuses
-	// the delete exactly as the audit's reproduction step describes.
-	if _, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Desk incidents", "", desk.ID); err != nil {
-		t.Fatalf("create category: %v", err)
-	}
-
-	mux := http.NewServeMux()
-	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
-	post := func(hx bool, form url.Values) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost,
-			"/categories/desks/"+strconv.FormatInt(desk.ID, 10)+"/delete",
-			strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
-		if hx {
-			req.Header.Set("HX-Request", "true")
-		}
-		rec := httptest.NewRecorder()
-		h.mw.Wrap(mux).ServeHTTP(rec, req)
-		return rec
-	}
-	selection := url.Values{
-		"view":          {"structure"},
-		"department_id": {strconv.FormatInt(department.ID, 10)},
-		"desk_id":       {strconv.FormatInt(desk.ID, 10)},
-	}
-
-	rec := post(true, selection)
-	if rec.Code != http.StatusConflict {
-		t.Errorf("refused desk delete = %d, want 409: %s", rec.Code, rec.Body.String())
-	}
-	if got := rec.Header().Get("HX-Retarget"); got != "#categories-background" {
-		t.Errorf("HX-Retarget = %q, want the structure region", got)
-	}
-	if got := rec.Header().Get("HX-Reswap"); got != "outerHTML" {
-		t.Errorf("HX-Reswap = %q, want outerHTML", got)
-	}
-	fragment := rec.Body.String()
-	for _, want := range []string{
-		`<div class="error-banner" role="alert">desk is referenced and cannot be deleted</div>`,
-		`data-level="desk" data-current="true"`,
-		`<span class="catalog-node-name">Service desk</span>`,
-	} {
-		if !strings.Contains(fragment, want) {
-			t.Errorf("the refused delete must keep the structure selection, missing %q in: %.1200s", want, fragment)
-		}
-	}
-	if strings.Contains(fragment, "<html") {
-		t.Errorf("an HTMX refusal must swap the structure region, not a whole page")
-	}
-
-	// The same refusal in a Spanish instance renders the translated error, and
-	// the native (no-HTML-override) path keeps the selection too.
-	if err := h.store.SettingsStore().SetInterfaceLanguage(t.Context(), application.InterfaceLanguageSpanish); err != nil {
-		t.Fatalf("set interface language: %v", err)
-	}
-	spanish := post(false, selection)
-	if spanish.Code != http.StatusConflict {
-		t.Errorf("native refused delete = %d, want 409", spanish.Code)
-	}
-	if body := spanish.Body.String(); !strings.Contains(body, "la mesa está en uso y no se puede eliminar") {
-		t.Errorf("the refusal must be translated, got: %.800s", body)
-	}
-	if body := spanish.Body.String(); !strings.Contains(body, `aria-current="true"`) {
-		t.Errorf("the native refusal must keep the structure selection, got: %.800s", body)
-	}
-}
-
 // TestS6DeleteControlsAskBeforeDeleting is the markup half of S6's
 // confirmation: every direct delete control is a confirmation trigger that
 // names its row, so a single click cannot reach the server, and the page ships
 // one dialog whose destructive action is styled apart from cancel.
 func TestS6DeleteControlsAskBeforeDeleting(t *testing.T) {
 	h := newHarness(t)
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Service desk")
-	if err != nil {
-		t.Fatalf("create desk: %v", err)
-	}
-	if _, err := h.categories.CreateWithDescriptionFor(t.Context(), *h.admin, "Desk incidents", "", desk.ID); err != nil {
+	folder := seedFolder(t, h, nil, "Operations")
+	if _, err := h.categories.CreateInFolderFor(t.Context(), *h.admin, "Desk incidents", "", "", &folder); err != nil {
 		t.Fatalf("create category: %v", err)
 	}
-	mux := http.NewServeMux()
-	NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog).Register(mux)
-	req := httptest.NewRequest(http.MethodGet,
-		"/categories?view=structure&department_id="+strconv.FormatInt(department.ID, 10)+"&desk_id="+strconv.FormatInt(desk.ID, 10), nil)
-	req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
-	rec := httptest.NewRecorder()
-	h.mw.Wrap(mux).ServeHTTP(rec, req)
+	rec := h.get(t, "/categories?folder="+strconv.FormatInt(folder, 10), false)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET structure = %d, want 200", rec.Code)
+		t.Fatalf("GET folder = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
 
 	for _, want := range []string{
-		`data-category-delete="department" data-delete-confirm="Delete the department “Operations”?"`,
-		`data-category-delete="desk" data-delete-confirm="Delete the desk “Service desk”?"`,
+		`data-category-delete="folder" data-delete-confirm="Delete the folder “Operations”?"`,
 		`data-category-delete="category" data-delete-confirm="Delete the category “Desk incidents”?"`,
-		`hx-post="/categories/desks/` + strconv.FormatInt(desk.ID, 10) + `/delete" hx-target="#categories-background" hx-swap="outerHTML"`,
+		`hx-post="/categories/folders/` + strconv.FormatInt(folder, 10) + `/delete" hx-target="#categories-background" hx-swap="outerHTML"`,
 		`<dialog id="category-delete-dialog" aria-labelledby="category-delete-title" aria-describedby="category-delete-copy">`,
 		`data-category-delete-confirm`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("the structure view is missing the confirmation contract %q", want)
+			t.Errorf("the folder view is missing the confirmation contract %q", want)
 		}
 	}
 	// The dialog names what will be deleted at click time, so its own static
 	// copy stays generic and its body explains the consequence.
 	if !strings.Contains(body, `id="category-delete-copy">This cannot be undone.</p>`) {
 		t.Errorf("the confirmation dialog must explain that the delete is permanent")
-	}
-}
-
-// TestS6RefusalHelperParsesTheFormItself pins that the refusal renderer reads
-// the operator's selection even when its caller did not parse the form first,
-// so a future delete path cannot silently drop the structure selection
-// (native review R3-002 on #343).
-func TestS6RefusalHelperParsesTheFormItself(t *testing.T) {
-	h := newHarness(t)
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Service desk")
-	if err != nil {
-		t.Fatalf("create desk: %v", err)
-	}
-	handlers := NewCategoryHandlersWithWorkflows(h.categories, h.workflows, h.renderer, catalog)
-	selection := url.Values{
-		"view":          {"structure"},
-		"department_id": {strconv.FormatInt(department.ID, 10)},
-		"desk_id":       {strconv.FormatInt(desk.ID, 10)},
-	}
-	req := httptest.NewRequest(http.MethodPost, "/categories/desks/"+strconv.FormatInt(desk.ID, 10)+"/delete",
-		strings.NewReader(selection.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("HX-Request", "true")
-	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, h.admin))
-	rec := httptest.NewRecorder()
-	handlers.renderCategoryDeleteRefusal(rec, req, &domain.ReferencedError{Kind: "desk", ID: desk.ID})
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("refusal status = %d, want 409: %.600s", rec.Code, rec.Body.String())
-	}
-	want := `data-level="desk" data-current="true"`
-	if !strings.Contains(rec.Body.String(), want) {
-		t.Errorf("an unparsed refusal request must keep the structure selection, missing %q in: %.1200s", want, rec.Body.String())
-	}
-}
-
-// TestStandaloneCategoryFormPageUsesTheShellTitle pins that the standalone
-// category form page has no title of its own: it only hosts the drawer
-// fragment, every category drawer screen is titled through its route
-// (TestS1EveryRouteNamesItsScreen), and categories_new.golden holds the shell
-// fallback on purpose (native review R3-003 on #343).
-func TestStandaloneCategoryFormPageUsesTheShellTitle(t *testing.T) {
-	if got := documentTitle(t, renderAuditPage(t, "en", "categories_new", fixtureCategoryFormData())); got != "tkt — Help desk" {
-		t.Errorf("standalone category form <title> = %q, want the shell fallback", got)
 	}
 }

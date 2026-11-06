@@ -33,6 +33,12 @@ Un punto junto a un título significa que algo cambió desde la última vez que 
 - **Archivos adjuntos**: hasta 5 archivos de 10 MB cada uno. El archivo tiene que ser del tipo que
   declara su nombre; un archivo de texto renombrado a `.png` se rechaza.
 
+Recorré las carpetas o buscá en el catálogo por nombre de categoría, descripción o ruta de
+carpetas. El selector busca nombres de categorías y rutas de carpetas. Las tarjetas y las
+sugerencias muestran la ruta, no una mesa de la categoría: los pasos del flujo determinan
+la responsabilidad. Sin JavaScript, los enlaces de carpetas, la búsqueda del catálogo y el
+selector nativo de categoría siguen funcionando.
+
 Si la instancia ofrece sugerencias de categoría, son una pista: hasta tres, nunca se aplican solas
 y el catálogo sigue disponible.
 

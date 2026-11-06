@@ -31,13 +31,14 @@ func newCategorySuggestionIndex(db *sql.DB) *categorySuggestionIndex {
 }
 
 // The BM25 column weights, in the column order of category_suggest_fts: name,
-// keywords, description, desk, department.
+// keywords, description, reserved empty desk, folders (the category's folder
+// path). Migration 0047 removes desk text while retaining the column layout.
 //
 // Name and keywords carry what an administrator decided this category is about,
 // and a keyword is literally a word a requester might type, so both sit far above
 // the description, which is prose about the category and matches incidentally. The
-// desk and department names are the weakest signal on purpose: every category of a
-// desk shares them, so they help place a category but never distinguish one from
+// folder names are the weakest signal on purpose: every category of a folder
+// shares them, so they help place a category but never distinguish one from
 // its siblings. The gaps are ordinal, not calibrated: bm25 is scale-free per term,
 // so only the ratio between columns is meaningful.
 const (
@@ -174,11 +175,12 @@ func (i *categorySuggestionIndex) matchedWords(ctx context.Context, words []stri
 		ids[index] = candidate.CategoryID
 	}
 	in, args := idList(ids)
+	// The folder path is read from the index row itself: it is the same text the
+	// triggers maintain, and computing it here would repeat their recursive walk.
 	rows, err := i.db.QueryContext(ctx, `SELECT c.id, c.name, c.keywords, c.description,
-			COALESCE(ds.name, ''), COALESCE(d.name, '')
+			COALESCE(fts.folders, '')
 		FROM categories c
-		LEFT JOIN desks ds ON ds.id = c.desk_id
-		LEFT JOIN departments d ON d.id = ds.department_id
+		LEFT JOIN category_suggest_fts fts ON fts.rowid = c.id
 		WHERE c.id IN (`+in+`)`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: read suggestion matches: %w", err)
@@ -188,14 +190,14 @@ func (i *categorySuggestionIndex) matchedWords(ctx context.Context, words []stri
 	out := make(map[int64][]string, len(ids))
 	for rows.Next() {
 		var (
-			id                                            int64
-			name, keywords, description, desk, department string
+			id                                   int64
+			name, keywords, description, folders string
 		)
-		if err := rows.Scan(&id, &name, &keywords, &description, &desk, &department); err != nil {
+		if err := rows.Scan(&id, &name, &keywords, &description, &folders); err != nil {
 			return nil, fmt.Errorf("sqlite: scan suggestion matches: %w", err)
 		}
 		indexed := make(map[string]struct{})
-		for _, word := range application.SuggestionTerms(strings.Join([]string{name, keywords, description, desk, department}, " ")) {
+		for _, word := range application.SuggestionTerms(strings.Join([]string{name, keywords, description, folders}, " ")) {
 			indexed[word] = struct{}{}
 		}
 		var matched []string

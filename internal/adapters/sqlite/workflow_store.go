@@ -75,6 +75,9 @@ func (w *workflowStore) UpsertDraft(ctx context.Context, categoryID int64, draft
 		return err
 	}
 	defer tx.Rollback()
+	if err := validateDraftDeskReferences(ctx, tx, draft); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO category_workflows(category_id, draft_json) VALUES (?, '[]') ON CONFLICT(category_id) DO NOTHING`, categoryID); err != nil {
 		return fmt.Errorf("sqlite: upsert insert: %w", err)
 	}
@@ -148,6 +151,12 @@ func (w *workflowStore) SaveDraftIfRevision(ctx context.Context, categoryID int6
 		// expected a revision on a category that has none yet. Both mean the
 		// writer's copy is not the current one, and nothing was written.
 		return 0, application.ErrDraftRevisionConflict
+	}
+	// Check after the CAS so stale writers retain their existing conflict
+	// contract. Any missing reference rolls the entire write back, including
+	// revision and attribution. The writer reservation prevents deletion here.
+	if err := validateDraftDeskReferences(ctx, tx, draft); err != nil {
+		return 0, err
 	}
 	var revision int64
 	if err := tx.QueryRowContext(ctx, `SELECT draft_revision FROM category_workflows WHERE category_id=?`, categoryID).Scan(&revision); err != nil {
@@ -299,9 +308,16 @@ func (w *workflowStore) publish(ctx context.Context, categoryID int64, draft []b
 	if len(iss) > 0 {
 		return 0, 0, iss, nil
 	}
-	// The membership rules need desk facts, and this lookup is their only reader:
-	// domain.AssessRunnable owns both rules, so the gate has no second copy.
-	facts, err := w.deskFacts(ctx, def)
+	// Read desk existence and membership under the SAME writer reservation as
+	// publication. Otherwise deletion could commit after validation but before
+	// the immutable version and draft are written.
+	tx, err := beginImmediate(ctx, w.db, "publish")
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	defer tx.Rollback()
+	// domain.AssessRunnable still owns the publish validation contract.
+	facts, err := readDeskFacts(ctx, tx.QueryContext)
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -316,11 +332,6 @@ func (w *workflowStore) publish(ctx context.Context, categoryID int64, draft []b
 	}).Blockers; len(iss) > 0 {
 		return 0, 0, iss, nil
 	}
-	tx, err := beginImmediate(ctx, w.db, "publish")
-	if err != nil {
-		return 0, 0, nil, err
-	}
-	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO category_workflows(category_id, draft_json) VALUES (?, '[]') ON CONFLICT(category_id) DO NOTHING`, categoryID); err != nil {
 		return 0, 0, nil, fmt.Errorf("sqlite: publish ensure: %w", err)
 	}
@@ -377,27 +388,28 @@ type deskFact struct {
 	members int
 }
 
-// deskFacts resolves the desks a definition assigns to, once per desk.
-//
-// It delegates to allDeskFacts because the eligibility predicate has to be
-// written once: it must match the executor's least_loaded selection
-// (leastLoadedAssigneeTx: active, agent or above), or the publish gate and the
-// assignment could disagree about who is available.
-func (w *workflowStore) deskFacts(ctx context.Context, def domain.WorkflowDefinition) (map[int64]deskFact, error) {
-	all, err := w.allDeskFacts(ctx)
+// Drafts deliberately need not be publishable: empty definitions, unset desk
+// selections, missing strategies and unstaffed desks are editable states. Only
+// a selected positive desk ID must exist. Never apply Validate/AssessRunnable
+// to a draft. The caller holds an immediate transaction through the write.
+func validateDraftDeskReferences(ctx context.Context, tx *sql.Tx, raw []byte) error {
+	def, err := domain.ParseWorkflowDefinition(raw)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("sqlite: parse draft desk references: %w", err)
 	}
-	facts := map[int64]deskFact{}
-	for _, st := range def {
-		if st.Type != domain.StepAssignToDesk || st.AssignToDesk == nil {
+	for i, step := range def {
+		if step.Type != domain.StepAssignToDesk || step.AssignToDesk == nil || step.AssignToDesk.DeskID <= 0 {
 			continue
 		}
-		if f, ok := all[st.AssignToDesk.DeskID]; ok {
-			facts[st.AssignToDesk.DeskID] = f
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM desks WHERE id = ?)`, step.AssignToDesk.DeskID).Scan(&exists); err != nil {
+			return fmt.Errorf("sqlite: draft desk reference: %w", err)
+		}
+		if !exists {
+			return &domain.ValidationError{Field: "desk_id", Message: fmt.Sprintf("Step %d: choose a desk", i+1), Key: "error.workflow.choose_desk", Args: []any{i + 1}}
 		}
 	}
-	return facts, nil
+	return nil
 }
 
 // deskActiveAgentCount is the ONE desk agent-count predicate in the SQLite
@@ -417,7 +429,13 @@ const deskActiveAgentCount = `(SELECT COUNT(*)
 // actually act on a ticket. An absent desk is simply not in the map, which is
 // what makes the rule report "choose a desk".
 func (w *workflowStore) allDeskFacts(ctx context.Context) (map[int64]deskFact, error) {
-	rows, err := w.db.QueryContext(ctx, `
+	return readDeskFacts(ctx, w.db.QueryContext)
+}
+
+// Share the exact membership predicate between read-only summaries and the
+// transaction-bound publish gate, without opening a second pooled connection.
+func readDeskFacts(ctx context.Context, query func(context.Context, string, ...any) (*sql.Rows, error)) (map[int64]deskFact, error) {
+	rows, err := query(ctx, `
 		SELECT ds.id, ds.name, `+deskActiveAgentCount+`
 		  FROM desks ds`)
 	if err != nil {
@@ -541,14 +559,14 @@ func (w *workflowStore) ListSummaries(ctx context.Context) ([]application.Workfl
 	return out, nil
 }
 func (w *workflowStore) ListAvailableCategories(ctx context.Context) ([]domain.Category, error) {
-	rows, err := w.db.QueryContext(ctx, `SELECT c.id, c.name, c.description, c.desk_id, c.created_at FROM categories c JOIN category_workflows cw ON cw.category_id=c.id WHERE cw.current_version_id IS NOT NULL ORDER BY c.id ASC`)
+	rows, err := w.db.QueryContext(ctx, `SELECT c.id, c.name, c.description, c.created_at FROM categories c JOIN category_workflows cw ON cw.category_id=c.id WHERE cw.current_version_id IS NOT NULL ORDER BY c.id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: available: %w", err)
 	}
 	defer rows.Close()
 	var out []domain.Category
 	for rows.Next() {
-		// scanCategoryFrom consumes all five columns selected above.
+		// scanCategoryFrom consumes all four columns selected above.
 		c, err := scanCategoryFrom(rows)
 		if err != nil {
 			return nil, fmt.Errorf("sqlite: scan available: %w", err)

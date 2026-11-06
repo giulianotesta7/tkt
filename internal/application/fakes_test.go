@@ -3170,3 +3170,157 @@ func (f *fakePublicURLSettings) SetEmailSettings(_ context.Context, s applicatio
 	f.baseURL = s.BaseURL
 	return nil
 }
+
+// fakeFolderStore mirrors FolderStore (issue #484): sibling names collide
+// through domain.FolderNameKey, a move under the folder itself or a
+// descendant is a FolderCycleError, and a folder holding a folder or a placed
+// category cannot be deleted. Simplification: categories are known only by the
+// ids passed to PlaceCategory, so placing an unknown category id succeeds.
+type fakeFolderStore struct {
+	folders map[int64]domain.Folder
+	ids     []int64
+	places  map[int64]*int64
+	next    int64
+	writes  int
+	listErr error
+}
+
+func newFakeFolderStore() *fakeFolderStore {
+	return &fakeFolderStore{folders: map[int64]domain.Folder{}, places: map[int64]*int64{}, next: 1}
+}
+
+func (s *fakeFolderStore) seed(parent *int64, name string) int64 {
+	id := s.next
+	s.next++
+	s.folders[id] = domain.Folder{ID: id, ParentID: parent, Name: name}
+	s.ids = append(s.ids, id)
+	return id
+}
+
+func (s *fakeFolderStore) clash(parent *int64, name string, self int64) bool {
+	for _, f := range s.folders {
+		if f.ID != self && ((f.ParentID == nil && parent == nil) || (f.ParentID != nil && parent != nil && *f.ParentID == *parent)) &&
+			domain.FolderNameKey(f.Name) == domain.FolderNameKey(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *fakeFolderStore) ListFolders(ctx context.Context) ([]domain.Folder, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	out := make([]domain.Folder, 0, len(s.folders))
+	for _, id := range s.ids {
+		if f, ok := s.folders[id]; ok {
+			out = append(out, f)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return domain.CatalogLess(out[i].Name, out[i].ID, out[j].Name, out[j].ID) })
+	return out, nil
+}
+
+func (s *fakeFolderStore) GetFolder(ctx context.Context, id int64) (*domain.Folder, error) {
+	f, ok := s.folders[id]
+	if !ok {
+		return nil, &domain.NotFoundError{Kind: "folder", ID: id}
+	}
+	return &f, nil
+}
+
+func (s *fakeFolderStore) CreateFolder(ctx context.Context, f *domain.Folder) error {
+	s.writes++
+	if f.ParentID != nil {
+		if _, ok := s.folders[*f.ParentID]; !ok {
+			return &domain.NotFoundError{Kind: "folder", ID: *f.ParentID}
+		}
+	}
+	if s.clash(f.ParentID, f.Name, 0) {
+		return &domain.DuplicateError{Kind: "folder", Name: f.Name}
+	}
+	f.ID = s.next
+	s.next++
+	s.folders[f.ID] = *f
+	s.ids = append(s.ids, f.ID)
+	return nil
+}
+
+func (s *fakeFolderStore) UpdateFolder(ctx context.Context, f *domain.Folder) error {
+	s.writes++
+	cur, ok := s.folders[f.ID]
+	if !ok {
+		return &domain.NotFoundError{Kind: "folder", ID: f.ID}
+	}
+	if s.clash(cur.ParentID, f.Name, f.ID) {
+		return &domain.DuplicateError{Kind: "folder", Name: f.Name}
+	}
+	cur.Name, cur.Description = f.Name, f.Description
+	s.folders[f.ID] = cur
+	return nil
+}
+
+func (s *fakeFolderStore) MoveFolder(ctx context.Context, id int64, parentID *int64) error {
+	s.writes++
+	cur, ok := s.folders[id]
+	if !ok {
+		return &domain.NotFoundError{Kind: "folder", ID: id}
+	}
+	if parentID != nil {
+		for p, ok := s.folders[*parentID]; ok; p, ok = s.folders[*p.ParentID] {
+			if p.ID == id {
+				return &domain.FolderCycleError{FolderID: id, ParentID: *parentID}
+			}
+			if p.ParentID == nil {
+				break
+			}
+		}
+		if _, ok := s.folders[*parentID]; !ok {
+			return &domain.NotFoundError{Kind: "folder", ID: *parentID}
+		}
+	}
+	if s.clash(parentID, cur.Name, id) {
+		return &domain.DuplicateError{Kind: "folder", Name: cur.Name}
+	}
+	cur.ParentID = parentID
+	s.folders[id] = cur
+	return nil
+}
+
+func (s *fakeFolderStore) DeleteFolder(ctx context.Context, id int64) error {
+	s.writes++
+	if _, ok := s.folders[id]; !ok {
+		return &domain.NotFoundError{Kind: "folder", ID: id}
+	}
+	for _, f := range s.folders {
+		if f.ParentID != nil && *f.ParentID == id {
+			return &domain.ReferencedError{Kind: "folder", ID: id}
+		}
+	}
+	for _, p := range s.places {
+		if p != nil && *p == id {
+			return &domain.ReferencedError{Kind: "folder", ID: id}
+		}
+	}
+	delete(s.folders, id)
+	return nil
+}
+
+func (s *fakeFolderStore) PlaceCategory(ctx context.Context, categoryID int64, folderID *int64) error {
+	s.writes++
+	if folderID != nil {
+		if _, ok := s.folders[*folderID]; !ok {
+			return &domain.NotFoundError{Kind: "folder", ID: *folderID}
+		}
+	}
+	s.places[categoryID] = folderID
+	return nil
+}
+
+func (s *fakeFolderStore) CategoryFolders(ctx context.Context) (map[int64]*int64, error) {
+	out := make(map[int64]*int64, len(s.places))
+	for k, v := range s.places {
+		out[k] = v
+	}
+	return out, nil
+}

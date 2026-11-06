@@ -93,7 +93,7 @@ export function creationPriorityPicker(page: Page): Locator {
 /**
  * Pick a category in the single-page picker: open it, search, and click the
  * exact option. The search narrows the list the way a person would, which is
- * also what proves the picker filters by category, desk and department name.
+ * also what proves the picker filters by category, folder and desk name.
  */
 export async function pickCreationCategory(page: Page, category: string): Promise<void> {
   const picker = creationCategoryPicker(page);
@@ -134,7 +134,8 @@ export async function openCatalogCard(page: Page, category: string): Promise<voi
   await expect(page.locator(".create-catalog")).toBeVisible();
   const search = page.locator("[data-create-catalog-search]");
   await search.fill(category);
-  const card = page.locator(".create-card").filter({
+  // Search flattens the folder tree (issue #484): the card is a search result.
+  const card = page.locator("[data-catalog-flat] .create-card").filter({
     has: page.locator(".create-card-name", { hasText: new RegExp(`^${escapeRegExp(category)}$`) }),
   });
   await expect(card).toHaveCount(1);
@@ -147,13 +148,15 @@ function escapeRegExp(value: string): string {
 }
 
 /**
- * The Catalog is one expandable tree (issue #387): departments › desks ›
- * categories, every level on the page at once. These helpers are the only place
- * that knows the tree's markup, so a journey names the entity it needs and never
- * the DOM shape around it.
+ * The Catalog is a folder tree of categories (issue #484), shown in the layout
+ * each administrator picked: Folders (a folder sidebar beside a table of the
+ * selected folder's contents, the default) or Tree (one indented tree). Desks
+ * are teams with their own screen, /desks. These helpers are the only place
+ * that knows that markup, so a journey names the entity it needs and never the
+ * DOM shape around it.
  */
 export function catalogTree(page: Page): Locator {
-  return page.locator(".catalog-tree");
+  return page.locator("#categories-background");
 }
 
 /** An anchored matcher, so "General" never resolves "General Support". */
@@ -161,73 +164,80 @@ function exact(name: string): RegExp {
   return new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 }
 
-/** One tree node by level and exact name. */
-export function catalogNode(page: Page, level: "department" | "desk", name: string): Locator {
-  return catalogTree(page)
-    .locator(`[data-level="${level}"]`)
-    .filter({ has: page.locator(".catalog-node-name", { hasText: exact(name) }) });
+/**
+ * A catalog row's exact name. Past level four the tree prefixes the name with
+ * its "Level N" badge, so the badge is allowed and nothing else.
+ */
+function catalogName(name: string): RegExp {
+  return new RegExp(`^(Level \\d+ )?${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 }
 
-/** One category row by exact name. */
-export function catalogCategoryRow(page: Page, name: string): Locator {
-  return catalogTree(page)
-    .locator('[data-level="category"]')
-    .filter({ has: page.locator(".catalog-category-link", { hasText: exact(name) }) });
-}
-
-/** The numeric id the server put on a tree node, so a journey can build a URL. */
-export async function catalogNodeId(node: Locator, what: string): Promise<string> {
-  const value = await node.getAttribute("data-catalog-id");
-  if (!value) throw new Error(`Cannot resolve the id of ${what}`);
-  return value;
+/** One desk row of /desks by exact name. */
+export function deskRow(page: Page, name: string): Locator {
+  return page
+    .locator("tr[data-desk-id]")
+    .filter({ has: page.locator(".desks-launcher strong", { hasText: exact(name) }) });
 }
 
 /**
- * The row-level menu trigger of one tree node. Every level owns one, and the
- * trigger's accessible name is "Actions for <name>".
+ * One folder tree node by exact name. A desk is resolved on /desks.
  */
-export function catalogRowMenu(node: Locator): Locator {
-  return node.locator(".catalog-tree-row").first().locator("[data-category-menu]");
+export function catalogNode(page: Page, level: "folder" | "desk", name: string): Locator {
+  if (level === "desk") return deskRow(page, name);
+  return page.locator('li[data-level="folder"]').filter({
+    has: page.locator(":scope > .catalog-tree-row .catalog-node-name", {
+      hasText: catalogName(name),
+    }),
+  });
 }
 
-/** The currently open menu panel of one tree node. */
+/** One category tree row by exact name. */
+export function catalogCategoryRow(page: Page, name: string): Locator {
+  return page
+    .locator('li[data-level="category"]')
+    .filter({ has: page.getByRole("link", { name: catalogName(name) }) });
+}
+
+/** The numeric id the server put on a catalog or desk row, so a journey can build a URL. */
+export async function catalogNodeId(node: Locator, what: string): Promise<string> {
+  for (const attribute of [
+    "data-category-id",
+    "data-folder-id",
+    "data-desk-id",
+    "data-catalog-id",
+  ]) {
+    const value = await node.getAttribute(attribute);
+    if (value) return value;
+  }
+  throw new Error(`Cannot resolve the id of ${what}`);
+}
+
+/** The row-level menu trigger of one row; its accessible name is "Actions for <name>". */
+export function catalogRowMenu(node: Locator): Locator {
+  return node.locator("[data-category-menu]").first();
+}
+
+/** The currently open menu panel of one row. */
 export function openCatalogRowMenu(node: Locator): Locator {
   return node.locator(".category-overflow-menu:not([hidden])");
 }
 
 /**
- * Resolve a desk by its exact name and leave the browser on its legacy
- * selection URL, because that is the context the desk drawer and the mutation
- * redirects carry. Returns the desk id.
- *
- * A desk name is not unique across departments, so the lookup fails loudly when
- * the name resolves to more than one row instead of picking one.
+ * Resolve a desk by its exact name on the desks screen and leave the browser
+ * there. Returns the desk id. Fails loudly unless exactly one row matches.
  */
 export async function selectCatalogDesk(page: Page, name: string): Promise<string> {
-  await page.goto(base() + "/categories?view=structure");
-  const desk = catalogNode(page, "desk", name);
-  await expect(
-    desk,
-    `Expected exactly one desk "${name}" in the catalog at ${page.url()}`,
-  ).toHaveCount(1);
+  await page.goto(base() + "/desks");
+  const desk = deskRow(page, name);
+  await expect(desk, `Expected exactly one desk "${name}" at ${page.url()}`).toHaveCount(1);
   const deskID = await catalogNodeId(desk, `desk ${name}`);
   if (!/^\d+$/.test(deskID)) {
     throw new Error(`Could not resolve the exact desk ID for "${name}" at ${page.url()}`);
   }
-  const departmentValue = await desk
-    .locator("xpath=ancestor::li[@data-level='department']")
-    .getAttribute("data-catalog-id");
-  if (!departmentValue) {
-    throw new Error(`Could not resolve the department of desk "${name}" at ${page.url()}`);
-  }
-  const departmentID = departmentValue === "-1" ? "unassigned" : departmentValue;
-  await page.goto(
-    base() + `/categories?view=structure&department_id=${departmentID}&desk_id=${deskID}`,
-  );
   return deskID;
 }
 
-/** Toggle one disclosure and prove the state flipped. */
+/** Toggle one tree disclosure and prove the state flipped. */
 export async function toggleCatalogNode(node: Locator): Promise<void> {
   const button = node.locator(".catalog-tree-row").first().locator("[data-catalog-disclosure]");
   const before = await button.getAttribute("aria-expanded");
@@ -235,56 +245,96 @@ export async function toggleCatalogNode(node: Locator): Promise<void> {
   await expect(button).toHaveAttribute("aria-expanded", before === "false" ? "true" : "false");
 }
 
+/** Create a desk on /desks through its drawer and return its id. */
+export async function createDeskViaUi(page: Page, name: string): Promise<string> {
+  await page.goto(base() + "/desks/new");
+  const drawer = page.getByRole("dialog", { name: /New desk/i });
+  await expect(drawer).toBeVisible();
+  await drawer.locator("#category-name").fill(name);
+  await drawer.getByRole("button", { name: /create desk/i }).click();
+  await expect(page).toHaveURL(/\/desks$/);
+  const row = deskRow(page, name);
+  await expect(row).toHaveCount(1);
+  return catalogNodeId(row, `desk ${name}`);
+}
+
 /**
- * Create a category through the catalog drawer and return its stable ID.
- * The drawer requires an explicit department and desk selection.
+ * Create a category through the catalog drawer, optionally in a folder (folder
+ * id; empty = top level). Its workflow steps, not the category, name a desk.
+ * Returns its id.
+ */
+export async function createCategoryInFolder(
+  page: Page,
+  o: { name: string; folderID?: string; description?: string; keywords?: string },
+): Promise<string> {
+  const folder = o.folderID ?? "";
+  await page.goto(base() + `/categories/new?folder_id=${folder || 0}`);
+  const drawer = page.getByRole("dialog", { name: /New category/i });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.locator("select[name=folder_id]")).toHaveValue(folder);
+  await drawer.locator("#category-name").fill(o.name);
+  if (o.description !== undefined)
+    await drawer.locator("#category-description").fill(o.description);
+  if (o.keywords !== undefined) await drawer.locator("#category-keywords").fill(o.keywords);
+  await drawer.getByRole("button", { name: /create category/i }).click();
+  await expect(drawer).toHaveCount(0);
+  await page.goto(base() + (folder ? `/categories?folder=${folder}` : "/categories"));
+  const row = catalogCategoryRow(page, o.name);
+  await expect(row).toHaveCount(1);
+  return catalogNodeId(row, `category ${o.name}`);
+}
+
+/** Create a folder (parent id; empty = top level) and return its id. */
+export async function createFolderViaUi(page: Page, name: string, parentID = ""): Promise<string> {
+  await page.goto(base() + `/categories/folders/new?parent_id=${parentID || 0}`);
+  const drawer = page.getByRole("dialog", { name: /New folder/i });
+  await expect(drawer).toBeVisible();
+  await drawer.locator("#category-name").fill(name);
+  await drawer.getByRole("button", { name: /create folder/i }).click();
+  await expect(drawer).toHaveCount(0);
+  await page.goto(base() + (parentID ? `/categories?folder=${parentID}` : "/categories"));
+  const row = catalogNode(page, "folder", name);
+  await expect(row).toHaveCount(1);
+  return catalogNodeId(row, `folder ${name}`);
+}
+
+/**
+ * Create a category at the top level through the catalog drawer and return its
+ * stable ID.
  */
 export async function createCategoryViaUi(page: Page, name: string): Promise<string> {
   await page.goto(base() + "/categories/new");
   const drawer = page.getByRole("dialog", { name: /New category/i });
   await expect(drawer).toBeVisible();
-  const department = drawer.locator("select[name=department_id]");
-  await department.selectOption({ index: 1 });
-  const desk = drawer.locator("select[name=desk_id]");
-  const deskValue = await desk.locator("option:not([value=''])").first().getAttribute("value");
-  if (!deskValue) throw new Error("No desk is available for the selected department");
-  await desk.selectOption(deskValue);
   await drawer.locator("#category-name").fill(name);
+  const response = page.waitForResponse(
+    (result) =>
+      new URL(result.url()).pathname === "/categories" &&
+      result.request().method() === "POST" &&
+      result.request().headers()["hx-request"] === "true",
+  );
   await drawer.getByRole("button", { name: /create category/i }).click();
-  await expect(page).toHaveURL(/\/categories/);
+  expect((await response).status(), `create category "${name}"`).toBe(200);
+  await expect(drawer).toHaveCount(0);
+  await expect(page).toHaveURL(/\/categories$/);
+  await page.goto(base() + "/categories");
   const row = catalogCategoryRow(page, name);
   await expect(row).toHaveCount(1);
   return catalogNodeId(row, `category ${name}`);
 }
 
 /**
- * Resolve the workflow builder href for the "General" category.
- * The tree renders every category, so no drill-down is needed; the row's own
- * workflow link is the answer. Throws if the General row or its link is missing.
+ * Resolve the workflow builder href for the "General" category, a top-level
+ * category the seed creates. Throws if the row or its link is missing.
  */
 export async function resolveWorkflowHref(page: Page): Promise<string> {
-  await page.goto(base() + "/categories?view=structure");
-  const rowSelector = '[data-level="category"]:has-text("General")';
+  await page.goto(base() + "/categories");
   const generalRow = catalogCategoryRow(page, "General");
   if ((await generalRow.count()) !== 1) {
-    throw new Error(
-      `Expected exactly one category "General" using ${rowSelector} at ${page.url()}`,
-    );
+    throw new Error(`Expected exactly one category "General" at ${page.url()}`);
   }
-
-  const workflowLink = generalRow.locator('a[href*="/workflow"]').first();
-  if ((await workflowLink.count()) === 0) {
-    throw new Error(
-      `Workflow link not found for category "General" using ${rowSelector} at ${page.url()}`,
-    );
-  }
-
-  const href = await workflowLink.getAttribute("href");
-  if (!href) {
-    throw new Error(
-      `Workflow href is empty for category "General" using ${rowSelector} at ${page.url()}`,
-    );
-  }
+  const href = await generalRow.locator('a[href*="/workflow"]').first().getAttribute("href");
+  if (!href) throw new Error(`Workflow href is empty for category "General" at ${page.url()}`);
   return href;
 }
 
@@ -303,18 +353,18 @@ export async function openWorkflowBuilder(page: Page): Promise<string> {
 /**
  * Resolve the category edit href for the given category name.
  * Navigates to /categories first if not already there.
- * Throws if the row or edit link is not found.
+ * Throws if the named category or its stable ID cannot be resolved.
  */
 export async function resolveCategoryEditHref(
   page: Page,
   name: string = "General",
 ): Promise<string> {
   if (!page.url().includes("/categories")) {
-    await page.goto(base() + "/categories?view=structure");
+    await page.goto(base() + "/categories");
   }
   await expect(page.locator('h1:has-text("Catalog")')).toBeVisible({ timeout: 10_000 });
 
-  const rowSelector = `[data-level="category"]:has-text("${name}")`;
+  const rowSelector = `category row "${name}"`;
   const row = catalogCategoryRow(page, name);
   if ((await row.count()) !== 1) {
     throw new Error(
@@ -322,20 +372,10 @@ export async function resolveCategoryEditHref(
     );
   }
 
-  const editLink = row.locator('a[href*="/edit"]').first();
-  if ((await editLink.count()) === 0) {
-    throw new Error(
-      `Edit link not found for category "${name}" using ${rowSelector} at ${page.url()}`,
-    );
-  }
-
-  const href = await editLink.getAttribute("href");
-  if (!href) {
-    throw new Error(
-      `Edit href is empty for category "${name}" using ${rowSelector} at ${page.url()}`,
-    );
-  }
-  return href;
+  const id = await catalogNodeId(row, `category "${name}" at ${page.url()}`);
+  if (!/^\d+$/.test(id))
+    throw new Error(`Invalid category ID "${id}" for "${name}" at ${page.url()}`);
+  return `/categories/${id}/edit`;
 }
 
 /**

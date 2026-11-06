@@ -150,7 +150,7 @@ func seedCatalogCategory(t *testing.T, s *Store, id int64, name, description, ke
 // NOT NULL, empty by default, so an existing category reads back with no keywords
 // and a create that sends none never stores NULL.
 func TestMigration0031KeywordsColumn(t *testing.T) {
-	s := newTestDB(t)
+	s := newTestDBThrough0043(t)
 
 	var (
 		columnType string
@@ -189,7 +189,7 @@ func TestMigration0031KeywordsColumn(t *testing.T) {
 // engine checks query words against, and the tokenizers they were built with:
 // unicode61 with full diacritic removal for ranking, trigram for typos.
 func TestMigration0031IndexTablesExist(t *testing.T) {
-	s := newTestDB(t)
+	s := newTestDBThrough0043(t)
 
 	for _, name := range []string{"category_suggest_fts", "category_suggest_trigram", "category_suggest_vocab"} {
 		var (
@@ -252,7 +252,7 @@ func TestMigration0031IndexTablesExist(t *testing.T) {
 // leaves both indexes exact: create, rename, keyword edit, description edit and
 // delete. A superseded term must not stay searchable.
 func TestMigration0031IndexFollowsCategoryWrites(t *testing.T) {
-	s := newTestDB(t)
+	s := newTestDBThrough0043(t)
 	departmentID := seedCatalogDepartment(t, s, "Tecnología")
 	deskID := seedCatalogDesk(t, s, "Service desk", departmentID)
 
@@ -334,7 +334,7 @@ func TestMigration0031IndexFollowsCategoryWrites(t *testing.T) {
 // the department above it. A stale desk or department name would rank a category
 // by a place it no longer sits in.
 func TestMigration0031IndexFollowsCatalogMoves(t *testing.T) {
-	s := newTestDB(t)
+	s := newTestDBThrough0043(t)
 	technologyID := seedCatalogDepartment(t, s, "Tecnología")
 	peopleID := seedCatalogDepartment(t, s, "Personas")
 	serviceDeskID := seedCatalogDesk(t, s, "Service desk", technologyID)
@@ -402,7 +402,7 @@ func TestMigration0031UpgradePathBackfillsExistingCategories(t *testing.T) {
 		t.Fatalf("seed pre-0031 category: %v", err)
 	}
 
-	if err := migrate(ctx, pre.db, migrationsFS); err != nil {
+	if err := migrate(ctx, pre.db, migrationsBefore(t, "0044_category_suggest_folders.sql", false)); err != nil {
 		t.Fatalf("upgrade pre-0031 db: %v", err)
 	}
 
@@ -442,4 +442,21 @@ func TestMigration0031UpgradePathBackfillsExistingCategories(t *testing.T) {
 	if recorded != 1 {
 		t.Errorf("schema_migrations version = 31 rows = %d, want 1", recorded)
 	}
+}
+
+// newTestDBThrough0043 is a fully migrated database WITHOUT 0044 and later: the
+// 0031 tests describe the suggestion index as 0031 built it (with a department
+// column), which 0044 replaces with the folder path (issue #484).
+func newTestDBThrough0043(t *testing.T) *Store {
+	t.Helper()
+	s, err := openDSN(testDSN(t))
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	s.db.SetMaxOpenConns(1)
+	t.Cleanup(func() { s.db.Close() })
+	if err := migrate(context.Background(), s.db, migrationsBefore(t, "0044_category_suggest_folders.sql", false)); err != nil {
+		t.Fatalf("migrate through 0043: %v", err)
+	}
+	return s
 }

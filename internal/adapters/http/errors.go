@@ -36,6 +36,7 @@ func mapError(err error) (int, string) {
 		workflowConflict *domain.WorkflowPositionConflictError
 		unrunnable       *domain.WorkflowUnrunnableError
 		holdConflict     *domain.HoldConflictError
+		folderCycle      *domain.FolderCycleError
 		badCredentials   *application.InvalidCredentialsError
 	)
 	switch {
@@ -73,6 +74,10 @@ func mapError(err error) (int, string) {
 		// #352), so the ticket the actor read is no longer the ticket stored.
 		// Reloading and retrying is the only recovery, exactly what the copy says.
 		return 409, holdConflict.Error()
+	case errors.As(err, &folderCycle):
+		// 422: the destination is a valid folder, but placing the folder there
+		// would make it its own ancestor (issue #484).
+		return 422, folderCycle.Error()
 	case errors.As(err, &badCredentials):
 		return 401, application.ErrMsgInvalidCredentials
 	default:
@@ -114,6 +119,8 @@ var errorKey = map[string]string{
 	domain.ErrMsgUserNameRequired:                            "error.name_required",
 	domain.ErrMsgUserEmailRequired:                           "error.email_required",
 	domain.ErrMsgCategoryNameRequired:                        "error.category_name_required",
+	domain.ErrMsgFolderNameRequired:                          "error.folder_name_required",
+	domain.ErrMsgFolderCycle:                                 "error.folder_cycle",
 	domain.ErrMsgUserInactive:                                "error.user_inactive",
 	domain.ErrMsgUserRoleCannotAssign:                        "error.user_role_cannot_assign",
 	domain.ErrMsgAssignTargetRole:                            "error.assign_target_role",
@@ -142,7 +149,6 @@ var errorKey = map[string]string{
 	"desk name is required":                                  "error.desk_name_required",
 	"category is required":                                   "error.category_required",
 	"identifier is required":                                 "error.identifier_required",
-	"department is required":                                 "error.department_required",
 	"desk members must have agent, admin, or root role":      "error.desk_members_role",
 	"invalid queue order":                                    "error.invalid_queue_order",
 	"invalid theme":                                          "error.invalid_theme",
@@ -162,14 +168,13 @@ var errorKey = map[string]string{
 	"the working calendar needs at least one working day, a start minute strictly before its end minute, and a timezone": "error.sla_calendar_shape",
 	"the working calendar minutes must be within 0 and 1439":                                                             "error.sla_calendar_minutes",
 	"the working calendar timezone must be a portable IANA zone name":                                                    "error.sla_calendar_timezone",
-	"invalid category view":                                         "error.invalid_category_view",
-	"department is required when a desk is selected":                "error.department_required_for_desk",
-	"invalid identifier":                                            "error.invalid_identifier",
-	"decision must be confirm or reject":                            "error.invalid_decision",
-	"desks cannot be ticket assignees":                              "error.desk_not_assignee",
-	"invalid user":                                                  "error.invalid_user",
-	"provide a title or a priority":                                 "error.provide_title_or_priority",
-	"invalid role":                                                  "error.invalid_role",
+	"invalid category view":              "error.invalid_category_view",
+	"invalid identifier":                 "error.invalid_identifier",
+	"decision must be confirm or reject": "error.invalid_decision",
+	"desks cannot be ticket assignees":   "error.desk_not_assignee",
+	"invalid user":                       "error.invalid_user",
+	"provide a title or a priority":      "error.provide_title_or_priority",
+	"invalid role":                       "error.invalid_role",
 	"the working calendar needs a start and end time in HH:MM form": "error.calendar_time_form",
 }
 

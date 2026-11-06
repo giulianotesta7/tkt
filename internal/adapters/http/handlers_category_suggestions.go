@@ -35,7 +35,7 @@ type suggestionView struct {
 	ID int64
 	// Name is the category's name.
 	Name string
-	// Caption is the "Department · Desk" the catalog shows under every card, so
+	// Caption is the folder path the catalog shows under every card, so
 	// a suggestion reads like the catalog entry it stands for.
 	Caption string
 	// MatchedWords are the words the engine matched, in the order they were
@@ -81,16 +81,10 @@ func suggestionViews(suggestions []application.SuggestedCategory, offers []catal
 	return out
 }
 
-// catalogCaption is the "Department · Desk" line a suggestion and a catalog card
-// both carry.
+// catalogCaption is the line a suggestion and a catalog card both carry: the
+// folder path. Responsibility comes from workflow steps, not category ownership.
 func catalogCaption(offer catalogCategoryEntry) string {
-	switch {
-	case offer.DepartmentName == "":
-		return offer.DeskName
-	case offer.DeskName == "":
-		return offer.DepartmentName
-	}
-	return offer.DepartmentName + " · " + offer.DeskName
+	return strings.Join(offer.FolderPath, " › ")
 }
 
 // ---------------------------------------------------------------- the ticket side
@@ -218,27 +212,14 @@ func suggestionIDs(suggestions []suggestionView) map[int64]struct{} {
 	return ids
 }
 
-// hideSuggestedCategories takes the categories the Suggested group names out of
-// their department section, so one category is offered once. A section left with
-// no card at all disappears with its last card.
-func hideSuggestedCategories(sections []createCatalogSection, suggested map[int64]struct{}) []createCatalogSection {
-	if len(suggested) == 0 {
-		return sections
-	}
-	for i := range sections {
-		visible := 0
-		for j := range sections[i].Cards {
-			card := &sections[i].Cards[j]
-			if _, ok := suggested[card.ID]; ok {
-				card.Hidden = true
-			}
-			if !card.Hidden {
-				visible++
-			}
+// hideSuggestedCategories hides the search results the Suggested group already
+// names, so one category is offered once.
+func hideSuggestedCategories(cards []createCatalogCard, suggested map[int64]struct{}) {
+	for i := range cards {
+		if _, ok := suggested[cards[i].ID]; ok {
+			cards[i].Hidden = true
 		}
-		sections[i].Hidden = visible == 0
 	}
-	return sections
 }
 
 // -------------------------------------------------------------- the settings side

@@ -298,31 +298,26 @@ func TestCategoriesIndexRenders(t *testing.T) {
 }
 
 // TestCategoryCreateSuccess proves POST /categories stores a unique name and
-// redirects 303.
+// redirects 303. A submitted desk_id is ignored (issue #491, S1).
 func TestCategoryCreateSuccess(t *testing.T) {
 	h := newHarness(t)
-	departmentID, deskID := h.seededDesk(t)
+	deskID := h.seededDesk(t)
 
-	rec := h.postForm(t, "/categories", categoryFormValues(t, "Support", departmentID, deskID), false)
+	rec := h.postForm(t, "/categories", categoryFormValues(t, "Support", deskID), false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/categories")
-	created, ok := categoryNamed(t, h, "Support")
-	if !ok {
+	if _, ok := categoryNamed(t, h, "Support"); !ok {
 		t.Fatalf("created category must be readable")
-	}
-	if created.DeskID != deskID {
-		t.Errorf("created category desk = %d, want %d", created.DeskID, deskID)
 	}
 }
 
-// categoryFormValues is the drawer's own payload: a category always belongs to a
-// desk, and the desk to a department, so the catalog-aware route requires both.
-func categoryFormValues(t *testing.T, name string, departmentID, deskID int64) url.Values {
+// categoryFormValues is the drawer's own payload: a category always names the
+// desk responsible for it.
+func categoryFormValues(t *testing.T, name string, deskID int64) url.Values {
 	t.Helper()
 	return url.Values{
-		"name":          {name},
-		"department_id": {strconv.FormatInt(departmentID, 10)},
-		"desk_id":       {strconv.FormatInt(deskID, 10)},
+		"name":    {name},
+		"desk_id": {strconv.FormatInt(deskID, 10)},
 	}
 }
 
@@ -346,9 +341,9 @@ func categoryNamed(t *testing.T, h *harness, name string) (domain.Category, bool
 // rejected 409 (category spec).
 func TestCategoryCreateDuplicate409(t *testing.T) {
 	h := newHarness(t)
-	departmentID, deskID := h.seededDesk(t)
+	deskID := h.seededDesk(t)
 
-	rec := h.postForm(t, "/categories", categoryFormValues(t, "Bugs", departmentID, deskID), false)
+	rec := h.postForm(t, "/categories", categoryFormValues(t, "Bugs", deskID), false)
 
 	if rec.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409", rec.Code)
@@ -361,9 +356,9 @@ func TestCategoryCreateDuplicate409(t *testing.T) {
 // TestCategoryCreateValidation422 proves an empty name is a 422.
 func TestCategoryCreateValidation422(t *testing.T) {
 	h := newHarness(t)
-	departmentID, deskID := h.seededDesk(t)
+	deskID := h.seededDesk(t)
 
-	rec := h.postForm(t, "/categories", categoryFormValues(t, "   ", departmentID, deskID), false)
+	rec := h.postForm(t, "/categories", categoryFormValues(t, "   ", deskID), false)
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", rec.Code)
@@ -377,9 +372,9 @@ func TestCategoryCreateValidation422(t *testing.T) {
 // the old one (rename spec).
 func TestCategoryRenameSuccess(t *testing.T) {
 	h := newHarness(t)
-	departmentID, deskID := h.seededDesk(t)
+	deskID := h.seededDesk(t)
 
-	rec := h.postForm(t, "/categories/1/edit", categoryFormValues(t, "Defects", departmentID, deskID), false)
+	rec := h.postForm(t, "/categories/1/edit", categoryFormValues(t, "Defects", deskID), false)
 
 	wantRedirect(t, rec, http.StatusSeeOther, "/categories")
 	c, err := h.categories.GetByID(t.Context(), 1)
@@ -392,10 +387,10 @@ func TestCategoryRenameSuccess(t *testing.T) {
 // 409 (rename spec).
 func TestCategoryRenameDuplicate409(t *testing.T) {
 	h := newHarness(t)
-	departmentID, deskID := h.seededDesk(t)
-	h.postForm(t, "/categories", categoryFormValues(t, "Support", departmentID, deskID), false)
+	deskID := h.seededDesk(t)
+	h.postForm(t, "/categories", categoryFormValues(t, "Support", deskID), false)
 
-	rec := h.postForm(t, "/categories/1/edit", categoryFormValues(t, "Support", departmentID, deskID), false)
+	rec := h.postForm(t, "/categories/1/edit", categoryFormValues(t, "Support", deskID), false)
 
 	if rec.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409", rec.Code)
@@ -409,8 +404,8 @@ func TestCategoryRenameDuplicate409(t *testing.T) {
 // deletable.
 func TestCategoryDeleteUnreferenced(t *testing.T) {
 	h := newHarness(t)
-	departmentID, deskID := h.seededDesk(t)
-	h.postForm(t, "/categories", categoryFormValues(t, "Support", departmentID, deskID), false)
+	deskID := h.seededDesk(t)
+	h.postForm(t, "/categories", categoryFormValues(t, "Support", deskID), false)
 	created, ok := categoryNamed(t, h, "Support")
 	if !ok {
 		t.Fatal("created category must be readable")
@@ -691,9 +686,6 @@ func TestManagementRouteRoleMatrix(t *testing.T) {
 						h.mw.Wrap(h.mux).ServeHTTP(rec, req)
 
 						wantStatus := tt.wantStatus
-						if r.path == "/desks" && wantStatus == http.StatusOK {
-							wantStatus = http.StatusSeeOther
-						}
 						if rec.Code != wantStatus {
 							t.Errorf("GET %s (HX=%t) as %s status = %d, want %d", r.path, hx, tt.role, rec.Code, wantStatus)
 						}

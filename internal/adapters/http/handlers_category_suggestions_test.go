@@ -52,7 +52,7 @@ func (f *fakeDecisionModel) Choose(ctx context.Context, cfg application.Decision
 // harness's own mux wires the settings routes.
 func suggestionHarness(t *testing.T, h *harness) *http.ServeMux {
 	t.Helper()
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
+	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock).WithFolders(h.store.FolderStore())
 	mux := http.NewServeMux()
 	NewTicketHandlers(h.tickets, h.comments, h.search, h.categories, h.users, h.store.DeskStore(), h.workflows, application.NewWorkflowRunner(h.clock), h.store.WorkflowRunStore(), h.store.WorkflowUnitOfWork(), h.renderer, catalog).WithCategorySuggestions(h.suggestionSvc).Register(mux)
 	return mux
@@ -103,8 +103,10 @@ func suggestionCatalog(t *testing.T, h *harness) {
 // requester would use, and publishes a workflow for it so it is offered.
 func suggestionCategory(t *testing.T, h *harness, name, keywords string) domain.Category {
 	t.Helper()
-	departmentID, deskID := h.seededDesk(t)
-	rec := h.postForm(t, "/categories", keywordsFormValues(t, name, keywords, departmentID, deskID), false)
+	deskID := h.seededDesk(t)
+	form := keywordsFormValues(t, name, keywords, deskID)
+	form.Set("folder_id", id(suggestionFolder(t, h)))
+	rec := h.postForm(t, "/categories", form, false)
 	wantRedirect(t, rec, http.StatusSeeOther, "/categories")
 	created, ok := categoryNamed(t, h, name)
 	if !ok {
@@ -112,6 +114,17 @@ func suggestionCategory(t *testing.T, h *harness, name, keywords string) domain.
 	}
 	h.publishWorkflow(t, created.ID, simpleManualDef())
 	return created
+}
+
+// suggestionFolder is the "Support" folder the suggestion categories live in,
+// created on first use (issue #484: a caption is the folder path).
+func suggestionFolder(t *testing.T, h *harness) int64 {
+	t.Helper()
+	var existing int64
+	if err := h.rawDB(t).QueryRow(`SELECT id FROM folders WHERE name = 'Support' AND parent_id IS NULL`).Scan(&existing); err == nil {
+		return existing
+	}
+	return seedFolder(t, h, nil, "Support")
 }
 
 // suggestionFragment asks the fragment endpoint the way the browser does.
@@ -157,7 +170,7 @@ func TestCategorySuggestionsOffLeavesBothCreationScreensAlone(t *testing.T) {
 	if strings.Contains(catalog, `id="create-catalog-suggestions"`) || strings.Contains(catalog, `hx-get="/tickets/suggestions`) {
 		t.Error("the catalog must render no suggested group with the feature off")
 	}
-	if !strings.Contains(catalog, `placeholder="Search categories, desks, or departments"`) {
+	if !strings.Contains(catalog, `placeholder="Search requests"`) {
 		t.Error("the catalog search keeps its own placeholder with the feature off")
 	}
 	if h.decisionModel.calls != 0 {
@@ -167,7 +180,7 @@ func TestCategorySuggestionsOffLeavesBothCreationScreensAlone(t *testing.T) {
 
 // TestCategorySuggestionsSinglePageOffersTheMatchingCategory is S2's first half:
 // the fragment the form refreshes shows up to three chips with the category, the
-// desk it belongs to, and a title that says where they came from.
+// folder path, and a title that says where they came from.
 func TestCategorySuggestionsSinglePageOffersTheMatchingCategory(t *testing.T) {
 	h := newHarness(t)
 	mux := suggestionHarness(t, h)
@@ -187,7 +200,7 @@ func TestCategorySuggestionsSinglePageOffersTheMatchingCategory(t *testing.T) {
 		"Suggested from your description",
 		`data-suggest-category="` + strconv.FormatInt(printers.ID, 10) + `"`,
 		"Printers",
-		"General · General",
+		`class="create-suggestion-chip-desk">Support</span>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the single-page fragment must render %q, got: %s", want, body)
@@ -258,7 +271,7 @@ func TestCategorySuggestionsToleratesATypo(t *testing.T) {
 }
 
 // TestCategorySuggestionsTwoStepGroupRendersOverTheCatalog is S2's second half on
-// the no-script path: ?q renders a Suggested group above the departments, with
+// the no-script path: ?q renders a Suggested group above the catalog, with
 // the matched words, and the suggested category is not repeated below.
 func TestCategorySuggestionsTwoStepGroupRendersOverTheCatalog(t *testing.T) {
 	h := newHarness(t)
@@ -279,18 +292,18 @@ func TestCategorySuggestionsTwoStepGroupRendersOverTheCatalog(t *testing.T) {
 		t.Fatalf("the catalog must render the suggested group, got: %s", body)
 	}
 	suggested := body[strings.Index(body, `class="create-catalog-suggested"`):]
-	suggested = suggested[:strings.Index(suggested, "create-catalog-department-group")]
+	suggested = suggested[:strings.Index(suggested, "data-catalog-level")]
 	if !strings.Contains(suggested, "Suggested") || !strings.Contains(suggested, "Printers") {
 		t.Errorf("the suggested group must name the category, got: %s", suggested)
 	}
 	if !strings.Contains(suggested, "Matches: impresora") {
 		t.Errorf("the suggested tile must list the matched words, got: %s", suggested)
 	}
-	// The department section must not repeat the category it just suggested: its
+	// The search results must not repeat the category it just suggested: its
 	// card is still in the markup, hidden, exactly as the live filter would hide it.
 	ref := "/tickets/new?category_id=" + strconv.FormatInt(printers.ID, 10)
-	if !strings.Contains(body, `href="`+ref+`" hidden>`) {
-		t.Error("the suggested category's department card must render hidden")
+	if !strings.Contains(body, `href="`+ref+`" hidden `) {
+		t.Error("the suggested category's search result must render hidden")
 	}
 	if strings.Contains(body, "No category matched") {
 		t.Error("a query with a confident suggestion must not claim nothing matched")
@@ -350,23 +363,18 @@ func TestCategorySuggestionsLiveFragmentIsEmptyWithoutAConfidentSuggestion(t *te
 func TestCategorySuggestionsNeverNameAnUnavailableOrUnpublishedCategory(t *testing.T) {
 	h := newHarness(t)
 	mux := suggestionHarness(t, h)
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "Operations department")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Support")
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Support")
 	if err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
-	draft, err := h.categories.CreateWithKeywordsFor(t.Context(), *h.admin, "Impresoras rotas", "impresora, toner", "impresora, toner", desk.ID)
+	draft, err := h.categories.CreateWithKeywordsFor(t.Context(), *h.admin, "Impresoras rotas", "impresora, toner", "impresora, toner")
 	if err != nil {
 		t.Fatalf("create unpublished category: %v", err)
 	}
 	if err := h.workflows.SaveDraft(t.Context(), *h.admin, draft.ID, assignToDeskDef(desk.ID)); err != nil {
 		t.Fatalf("save draft: %v", err)
 	}
-	broken, err := h.categories.CreateWithKeywordsFor(t.Context(), *h.admin, "Reparaciones", "impresora, toner", "impresora, toner", desk.ID)
+	broken, err := h.categories.CreateWithKeywordsFor(t.Context(), *h.admin, "Reparaciones", "impresora, toner", "impresora, toner")
 	if err != nil {
 		t.Fatalf("create unrunnable category: %v", err)
 	}
@@ -786,16 +794,11 @@ func TestCategorySuggestionsTwoStepCatalogNeverSuggestsACategoryThatCannotRun(t 
 	h := newHarness(t)
 	mux := suggestionHarness(t, h)
 	suggestionCatalog(t, h)
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Engineering", "Engineering department")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Plotting")
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Plotting")
 	if err != nil {
 		t.Fatalf("create desk: %v", err)
 	}
-	broken, err := h.categories.CreateWithKeywordsFor(t.Context(), *h.admin, "Plotters", "Large format plotters", "plotter, gran formato", desk.ID)
+	broken, err := h.categories.CreateWithKeywordsFor(t.Context(), *h.admin, "Plotters", "Large format plotters", "plotter, gran formato")
 	if err != nil {
 		t.Fatalf("create category: %v", err)
 	}
