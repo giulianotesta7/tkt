@@ -1838,8 +1838,8 @@ func TestGoldenTicketDetailOnHold(t *testing.T) {
 }
 
 // TestGoldenTicketDetailRequesterOnHold freezes the requester's view of their
-// own held ticket: the waiting banner with the reason, and no hold or resume
-// control anywhere.
+// own held ticket: the waiting notice with the reason above the composer, the
+// On hold label linking to it (issue #423), and no hold or resume control.
 func TestGoldenTicketDetailRequesterOnHold(t *testing.T) {
 	d := fixtureRequesterOnHoldDetailData()
 	body := renderGolden(t, "tickets_show", "ticket_detail", d, true)
@@ -1848,13 +1848,14 @@ func TestGoldenTicketDetailRequesterOnHold(t *testing.T) {
 		`class="hold-banner"`,
 		`This ticket is waiting for your reply`,
 		`send us a photo of the jammed tray`,
-		`<span class="chip">On hold</span>`,
+		`<a class="chip chip-link" href="#hold-notice">On hold</a>`,
 		`put the ticket on hold: send us a photo of the jammed tray`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("requester on-hold detail must contain %q, got: %s", want, body)
 		}
 	}
+	assertRequesterHoldNoticeAboveReply(t, body)
 	for _, absent := range []string{
 		`action="/tickets/1/hold"`,
 		`action="/tickets/1/resume"`,

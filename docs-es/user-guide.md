@@ -49,7 +49,8 @@ significa que todavía no hay ninguna categoría publicada.
 
 - Mientras el ticket está abierto, escribí en el compositor y elegí **Responder**. Tu respuesta es
   pública y el equipo recibe una notificación.
-- Si el equipo pone el ticket **En espera**, el ticket muestra qué necesitan de vos. Tu respuesta
+- Si el equipo pone el ticket **En espera**, el ticket muestra qué necesitan de vos justo encima
+  del cuadro de respuesta. La etiqueta **En espera** junto al título te lleva ahí. Tu respuesta
   termina la espera.
 - Cuando el equipo marca el ticket como **Resuelto**, el ticket pregunta **¿Se resolvió tu
   problema?**. Elegí **Sí, cerrar el ticket**, o **No, todavía necesito ayuda** para devolverlo.
