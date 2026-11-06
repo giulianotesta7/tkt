@@ -333,6 +333,8 @@
     border-radius:6px;font-size:12px;font-weight:500;white-space:nowrap;
     background:var(--gray-soft);color:var(--gray-ink);vertical-align:2px;
   }
+  .chip-link{text-decoration:none}
+  .chip-link:hover{background:var(--pressed);color:var(--ink-strong)}
   .priority{font-size:12px;font-weight:500;color:var(--ink-soft)}
 
   .filter-bar{
@@ -589,11 +591,9 @@
   .resolution-help{margin:0 0 12px;color:var(--ink-soft);font-size:13px;line-height:1.45}
   .resolution-actions{display:flex;gap:10px;flex-wrap:wrap}
   .hold-banner{
-    display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
     background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;
-    padding:12px 14px;margin-bottom:16px;font-size:13.5px;
+    padding:12px 14px;margin-bottom:16px;font-size:13.5px;scroll-margin-top:68px;
   }
-  .hold-banner-text{min-width:0}
   .hold-banner-title{margin:0;color:var(--ink-strong);font-weight:500;overflow-wrap:anywhere}
   .hold-banner-reason{margin:4px 0 0;color:var(--ink-soft);overflow-wrap:anywhere}
   .hold-resume{margin:0;flex:0 0 auto}

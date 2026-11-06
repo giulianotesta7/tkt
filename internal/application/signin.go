@@ -49,7 +49,10 @@ func (s *SigninService) GetSigninConfiguration(ctx context.Context) (SigninConfi
 // UpdateSignin validates one submission and writes it. Validation runs BEFORE
 // the write — every field, plus the image when one is submitted — so a rejected
 // submission stores nothing, and the store applies the panel and the image in
-// one transaction. A submission that carries no file keeps the stored image.
+// one transaction. A submission that carries no file keeps the stored image:
+// the store keeps it inside its own transaction rather than this method writing
+// back the bytes it read, so a removal committed between the read and the write
+// is not undone (issue #388).
 func (s *SigninService) UpdateSignin(ctx context.Context, actor domain.User, in SigninInput) error {
 	if err := requireManageSettings(actor, "sign-in page settings are not permitted"); err != nil {
 		return err
@@ -62,14 +65,14 @@ func (s *SigninService) UpdateSignin(ctx context.Context, actor domain.User, in 
 	if err != nil {
 		return err
 	}
-	background := current.Background
 	switch {
 	case in.RemoveBackground:
-		background = nil
+		return s.store.SetSignin(ctx, panel, nil)
 	case in.Background != nil:
-		background = in.Background
+		return s.store.SetSignin(ctx, panel, in.Background)
+	default:
+		return s.store.SetSigninPanel(ctx, panel)
 	}
-	return s.store.SetSignin(ctx, panel, background)
 }
 
 // RemoveBackground drops the stored background image and returns the panel to

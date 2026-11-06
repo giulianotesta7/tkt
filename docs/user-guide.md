@@ -48,8 +48,8 @@ no category is published yet.
 
 - While the ticket is open, write in the composer and choose **Reply**. Your reply is public and
   the team is notified.
-- If the team puts the ticket **On hold**, the ticket shows what they need from you. Your reply
-  ends the hold.
+- If the team puts the ticket **On hold**, the ticket shows what they need from you right above
+  the reply box. The **On hold** label next to the title jumps there. Your reply ends the hold.
 - When the team marks the ticket **Resolved**, the ticket asks **Is your issue solved?**. Choose
   **Yes, close ticket**, or **No, I still need help** to send it back. A rejected resolution
   reopens the ticket as a manual ticket, so a workflow cannot close it behind your back.

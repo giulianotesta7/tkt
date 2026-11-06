@@ -385,6 +385,7 @@
   "error.signin_image_invalid": "el fondo debe ser una imagen PNG o JPEG",
   "error.signin_image_required": "sube una imagen o elige otro fondo",
   "error.signin_image_too_large": "la imagen de fondo debe pesar 1 MiB o menos",
+  "error.signin_image_unreadable": "no se pudo leer la imagen de fondo; súbela de nuevo",
   "error.signin_notice_invalid": "el aviso necesita un tipo información o advertencia y como máximo 240 caracteres de texto",
   "error.signin_notice_title_required": "escribe el título del aviso o desactívalo",
   "error.signin_subtitle_invalid": "el subtítulo debe caber en una línea y tener como máximo 200 caracteres",

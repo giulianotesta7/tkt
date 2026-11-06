@@ -385,6 +385,7 @@
   "error.signin_image_invalid": "the background must be a PNG or JPEG image",
   "error.signin_image_required": "upload an image or choose another background",
   "error.signin_image_too_large": "the background image must be 1 MiB or smaller",
+  "error.signin_image_unreadable": "the background image could not be read; upload it again",
   "error.signin_notice_invalid": "the notice needs an info or warning kind and at most 240 characters of text",
   "error.signin_notice_title_required": "enter the notice title or turn the notice off",
   "error.signin_subtitle_invalid": "the subtitle must fit on one line and have at most 200 characters",

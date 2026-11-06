@@ -8,6 +8,9 @@
     savePending = false,
     pendingScreenSave = false,
     createPending = false,
+    drawerSubmit = null,
+    drawerRequestSent = false,
+    focusedDrawer = null,
     discard = false,
     locked = false,
     dialogReturnFocus = null,
@@ -107,7 +110,16 @@
     }
     lock(true);
     updateDescription();
+    // Focus moves once per arriving drawer, and never out of a field the user
+    // already took: this runs after the swap settles, so on a loaded host the
+    // user can be typing before it lands (#355: the password went into the
+    // name field and the browser refused the submit). A refused save still
+    // moves focus: to the field it names, or to the first field.
+    if (focusedDrawer === d) return;
+    focusedDrawer = d;
     const invalid = q("[aria-invalid=true]", f);
+    const active = document.activeElement;
+    if (!invalid && d.dataset.serverError !== "true" && active !== d && d.contains(active)) return;
     (invalid || f.elements.name || d).focus();
   }
   function finishClose() {
@@ -512,9 +524,24 @@
     }
     busy = true;
     savePending = true;
+    drawerSubmit = event;
+    drawerRequestSent = false;
     createPending = drawer()?.dataset.userId === "0";
     const d = drawer();
     if (d) d.setAttribute("aria-busy", "true");
+  }
+  // Runs after htmx has handled the drawer's submit. A submit htmx cancelled
+  // without sending (a refused confirm, a halted validation) holds no request,
+  // so the guard must not swallow the next click (#355). A submit nobody
+  // cancelled is a native navigation and keeps the guard.
+  function releaseDeclinedSubmit(event) {
+    if (event !== drawerSubmit) return;
+    drawerSubmit = null;
+    if (drawerRequestSent || !event.defaultPrevented) return;
+    busy = false;
+    savePending = false;
+    createPending = false;
+    drawer()?.removeAttribute("aria-busy");
   }
   function sync() {
     const r = root();
@@ -566,6 +593,10 @@
     document.addEventListener("change", handleChange, true);
     document.addEventListener("input", handleSearch, true);
     document.addEventListener("submit", handleSubmit, true);
+    window.addEventListener("submit", releaseDeclinedSubmit);
+    document.addEventListener("htmx:beforeRequest", (event) => {
+      if (event.detail?.elt?.matches?.("#user-drawer-form")) drawerRequestSent = true;
+    });
     window.addEventListener("popstate", handlePop, true);
     // A fixed-positioned panel does not travel with its trigger, so any scroll
     // or resize closes it instead of leaving it pointing at another row.

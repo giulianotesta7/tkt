@@ -1,12 +1,6 @@
 
 <div id="ticket-detail" hx-headers="{&#34;X-TKT-Queue-Return&#34;:&#34;/tickets&#34;}">
 
-  <div class="hold-banner" role="status">
-    <div class="hold-banner-text">
-      <p class="hold-banner-title">This ticket is waiting for your reply</p>
-      <p class="hold-banner-reason">send us a photo of the jammed tray</p>
-    </div>
-  </div>
   <div class="command-header detail-header">
     <div class="detail-head">
       <div class="meta-row">
@@ -17,7 +11,7 @@
 
         <h1 class="command-title">Login page down</h1>
 
-        <span class="detail-state"><span class="badge in_progress">In progress</span> <span class="chip">On hold</span></span>
+        <span class="detail-state"><span class="badge in_progress">In progress</span> <a class="chip chip-link" href="#hold-notice">On hold</a></span>
       </div>
       <p class="detail-meta">Opened by <span class="detail-meta-requester">Beto Ruiz</span> · <time datetime="2026-08-06T10:00:00Z" title="10:00 · 06-08-2026">10:00 · 06-08-2026</time> · <span class="detail-meta-category">Bugs</span></p>
     </div>
@@ -33,6 +27,10 @@
       </div>
 
     <div class="replies" id="reply">
+      <div class="hold-banner" id="hold-notice" tabindex="-1" role="status">
+        <p class="hold-banner-title">This ticket is waiting for your reply</p>
+        <p class="hold-banner-reason">send us a photo of the jammed tray</p>
+      </div>
 
 
 <form class="card comment-form" method="post" action="/tickets/1/comments" enctype="multipart/form-data">
