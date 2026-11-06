@@ -1950,6 +1950,8 @@ func (f *fakeOrganizationStore) SetOrganization(_ context.Context, org domain.Or
 // transaction the real store commits. The zero value answers the documented
 // defaults, like the real store's absent-row fallback, and setErr fails the
 // whole write before any state changes, like a rolled-back transaction.
+// beforeWrite, when set, runs at the start of every write, so a test can land a
+// concurrent change between a service's read and its write.
 type fakeSigninStore struct {
 	panel          domain.SigninPanel
 	background     []byte
@@ -1957,6 +1959,7 @@ type fakeSigninStore struct {
 	getErr         error
 	setErr         error
 	setCalls       int
+	beforeWrite    func()
 }
 
 var _ application.SigninStore = (*fakeSigninStore)(nil)
@@ -1982,6 +1985,9 @@ func (f *fakeSigninStore) GetSignin(_ context.Context) (application.SigninConfig
 }
 
 func (f *fakeSigninStore) SetSignin(_ context.Context, panel domain.SigninPanel, background []byte) error {
+	if f.beforeWrite != nil {
+		f.beforeWrite()
+	}
 	f.setCalls++
 	if f.setErr != nil {
 		return f.setErr
@@ -1994,6 +2000,21 @@ func (f *fakeSigninStore) SetSignin(_ context.Context, panel domain.SigninPanel,
 			f.backgroundMIME = mime
 		}
 	}
+	return nil
+}
+
+func (f *fakeSigninStore) SetSigninPanel(_ context.Context, panel domain.SigninPanel) error {
+	if f.beforeWrite != nil {
+		f.beforeWrite()
+	}
+	f.setCalls++
+	if f.setErr != nil {
+		return f.setErr
+	}
+	if panel.Background == domain.SigninBackgroundImage && len(f.background) == 0 {
+		panel.Background = domain.SigninBackgroundDark
+	}
+	f.panel = panel
 	return nil
 }
 

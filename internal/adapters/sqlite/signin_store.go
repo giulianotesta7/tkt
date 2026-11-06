@@ -56,14 +56,20 @@ var signinPanelKeys = []struct {
 // malformed highlights array reads back as no highlights — the login page must
 // render even for a hand-edited database. Only a real storage failure is an
 // error.
+//
+// The text rows are read in ONE query (issue #388): the login page renders this
+// on every visit. The background bytes are still loaded, because the page
+// stamps the image URL with a hash of its content (logoVersion) so a replaced
+// image is never served from the route's public cache; the blob is capped at
+// MaxSigninBackgroundBytes.
 func (ss *settingsStore) GetSignin(ctx context.Context) (application.SigninConfiguration, error) {
-	values := make(map[string]string, len(signinPanelKeys))
-	for _, row := range signinPanelKeys {
-		value, err := ss.settingValue(ctx, row.key)
-		if err != nil {
-			return application.SigninConfiguration{}, err
-		}
-		values[row.key] = value
+	keys := make([]string, len(signinPanelKeys))
+	for i, row := range signinPanelKeys {
+		keys[i] = row.key
+	}
+	values, err := ss.settingValues(ctx, keys...)
+	if err != nil {
+		return application.SigninConfiguration{}, err
 	}
 	panel := domain.SigninPanel{
 		Title:         values[settingsKeySigninTitle],
@@ -125,6 +131,36 @@ func (ss *settingsStore) SetSignin(ctx context.Context, panel domain.SigninPanel
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value, mime = excluded.mime`,
 			settingsKeySigninBackgroundBlob, background, mime); err != nil {
 			return fmt.Errorf("sqlite: set %s: %w", settingsKeySigninBackgroundBlob, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// SetSigninPanel writes the panel's text rows and keeps the stored background
+// image (issue #388). Whether an image exists is read INSIDE the write
+// transaction, so a save with no file can neither restore an image a concurrent
+// removal deleted nor overwrite one a concurrent upload replaced; an "image"
+// style with no image left is stored as dark, as RemoveBackground does.
+func (ss *settingsStore) SetSigninPanel(ctx context.Context, panel domain.SigninPanel) error {
+	tx, err := beginImmediate(ctx, ss.db, "set signin panel text")
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if panel.Background == domain.SigninBackgroundImage {
+		var stored int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM settings_blobs WHERE key = ?`, settingsKeySigninBackgroundBlob).Scan(&stored); err != nil {
+			return fmt.Errorf("sqlite: get %s: %w", settingsKeySigninBackgroundBlob, err)
+		}
+		if stored == 0 {
+			panel.Background = domain.SigninBackgroundDark
+		}
+	}
+	for _, row := range signinPanelKeys {
+		if err := setSettingTx(ctx, tx, row.key, row.fromPane(panel)); err != nil {
+			return err
 		}
 	}
 	return tx.Commit()

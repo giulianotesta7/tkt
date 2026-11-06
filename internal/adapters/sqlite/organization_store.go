@@ -28,23 +28,23 @@ const (
 // optional email and logo stay empty — a hand-edited database degrades to the
 // brand the interface shipped with instead of dropping every page. Only a real
 // storage failure is an error.
+//
+// The auth middleware calls this on every request, on purpose (issue #388): a
+// cache would need invalidation across every write path, and an identity change
+// must show on the very next page. The three text rows are therefore read in
+// ONE query. The logo bytes are still loaded, because every page stamps the
+// logo URL with a hash of its content (logoVersion) so the day-long public
+// cache never serves a replaced logo; the blob is capped at
+// MaxOrganizationLogoBytes.
 func (ss *settingsStore) GetOrganization(ctx context.Context) (domain.Organization, error) {
-	name, err := ss.settingValue(ctx, settingsKeyOrganizationName)
-	if err != nil {
-		return domain.Organization{}, err
-	}
-	helpDesk, err := ss.settingValue(ctx, settingsKeyOrganizationHelpDesk)
-	if err != nil {
-		return domain.Organization{}, err
-	}
-	supportEmail, err := ss.settingValue(ctx, settingsKeyOrganizationSupportEmail)
+	values, err := ss.settingValues(ctx, settingsKeyOrganizationName, settingsKeyOrganizationHelpDesk, settingsKeyOrganizationSupportEmail)
 	if err != nil {
 		return domain.Organization{}, err
 	}
 	org := domain.Organization{
-		Name:         name,
-		HelpDesk:     helpDesk,
-		SupportEmail: supportEmail,
+		Name:         values[settingsKeyOrganizationName],
+		HelpDesk:     values[settingsKeyOrganizationHelpDesk],
+		SupportEmail: values[settingsKeyOrganizationSupportEmail],
 	}
 	if org.Name == "" {
 		org.Name = domain.DefaultOrganizationName
