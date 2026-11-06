@@ -83,6 +83,13 @@ func migrate(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 	return nil
 }
 
+// goMigrationSteps finish a migration whose data step SQL cannot express. A
+// step runs right after its version's script, in the same transaction, so the
+// version is recorded only when both succeed and a failure rolls both back.
+var goMigrationSteps = map[int]func(context.Context, *sql.Tx) error{
+	43: migrate0043,
+}
+
 // applyMigration applies one migration script and records its version in
 // schema_migrations inside a single immediate transaction. The deferred
 // Rollback guarantees the transaction cannot survive a panic or an early
@@ -95,6 +102,11 @@ func applyMigration(ctx context.Context, db *sql.DB, name string, version int, s
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, string(script)); err != nil {
 		return fmt.Errorf("sqlite: apply %s: %w", name, err)
+	}
+	if step, ok := goMigrationSteps[version]; ok {
+		if err := step(ctx, tx); err != nil {
+			return fmt.Errorf("sqlite: apply %s: %w", name, err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
 		version, time.Now().UTC().Format(time.RFC3339)); err != nil {

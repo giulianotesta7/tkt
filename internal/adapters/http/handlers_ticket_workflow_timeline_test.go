@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -14,8 +15,8 @@ import (
 )
 
 // Contextual workflow timeline HTTP contract: a completed claim step renders
-// one actor-first sentence with the persisted target and desk; it degrades to
-// Unknown desk after deletion, keeps the A→B reason visible, and omits the
+// one actor-first sentence with the persisted target and desk; referenced desk
+// deletion is refused to preserve that identity, and the timeline omits the
 // automatic least_loaded actor.
 
 // seedClaimCategory publishes a single assign_to_desk workflow for a fresh
@@ -74,15 +75,26 @@ func TestTicketWorkflowTimelineClaimRendersExactAssignmentLine(t *testing.T) {
 		t.Errorf("detail page must carry %q, got: %s", want, page.Body.String())
 	}
 
-	// Deleting the desk keeps history and degrades to Unknown desk (migration
-	// 0007 FK ON DELETE SET NULL).
-	if err := h.desks.Delete(t.Context(), *h.admin, desk.ID); err != nil {
-		t.Fatalf("delete desk: %v", err)
+	// Issue #491 S7: referenced desks cannot be deleted; history retains the
+	// original desk identity rather than falling back to Unknown desk.
+	err = h.desks.Delete(t.Context(), *h.admin, desk.ID)
+	var referenced *domain.ReferencedError
+	if !errors.As(err, &referenced) {
+		t.Fatalf("delete referenced desk = %v, want ReferencedError", err)
 	}
-	after := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false).Body.String()
-	wantUnknown := `assigned the ticket to <strong>Admin</strong> at <strong>Unknown desk</strong>`
-	if !strings.Contains(after, wantUnknown) {
-		t.Errorf("deleted desk must degrade to %q, got: %s", wantUnknown, after)
+	if referenced.Kind != "desk" || referenced.ID != desk.ID {
+		t.Errorf("delete refusal = %+v, want desk %d", referenced, desk.ID)
+	}
+	afterPage := h.get(t, "/tickets/"+strconv.FormatInt(tkt.ID, 10), false)
+	if afterPage.Code != http.StatusOK {
+		t.Fatalf("detail after refused deletion status = %d, want 200", afterPage.Code)
+	}
+	after := afterPage.Body.String()
+	if n := strings.Count(after, want); n != 1 {
+		t.Errorf("refused deletion must retain exactly one %q, got %d: %s", want, n, after)
+	}
+	if strings.Contains(after, "Unknown desk") {
+		t.Errorf("refused deletion must retain the historical desk identity: %s", after)
 	}
 }
 

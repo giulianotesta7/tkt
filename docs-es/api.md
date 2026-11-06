@@ -134,7 +134,7 @@ La lista no está paginada (`next_cursor` es null).
 ```json
 {
   "items": [{
-    "id": 3, "name": "Network", "desk": "Support", "department": "IT",
+    "id": 3, "name": "Network", "folder_path": ["IT", "Support"],
     "requester_form": {
       "position": 1,
       "fields": [{"name":"location","label":"Location","type":"short_text","required":true,"options":[]}]
@@ -144,7 +144,7 @@ La lista no está paginada (`next_cursor` es null).
 }
 ```
 
-`id` es entero; el nombre, la mesa y el departamento son cadenas. `requester_form` es null
+`id` es entero; `name` es una cadena; `folder_path` es el arreglo de nombres de carpeta desde el nivel superior hasta la categoría (vacío en el nivel superior). `requester_form` es null
 si no existe; de lo contrario, contiene el **primer formulario del solicitante** del flujo
 publicado. Su entero `position` empieza en uno. Cada campo tiene las cadenas `name`, `label`
 y `type`, el booleano `required` y el arreglo de cadenas `options`. Los tipos son `short_text`,

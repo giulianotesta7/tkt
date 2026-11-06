@@ -28,14 +28,19 @@ import {
   catalogCategoryRow,
   catalogNode,
   catalogNodeId,
+  createCategoryInFolder,
   createCategoryViaUi,
+  createDeskViaUi,
+  createFolderViaUi,
   createTicketViaUi,
+  selectCatalogDesk,
+  toggleCatalogNode,
 } from "./helpers/navigation.js";
 import { applyAssignee, currentAssignee, pickerButton } from "./helpers/ticket.js";
 
-/** The row-level menu trigger of one tree node. */
+/** The row-level menu trigger of one catalog row (table row or tree node). */
 function rowMenu(node: Locator): Locator {
-  return node.locator(":scope > .catalog-tree-row").locator("[data-category-menu]");
+  return node.locator("[data-category-menu]").first();
 }
 
 /**
@@ -137,39 +142,34 @@ async function assertDrawerHtmxSwap(
   }
 }
 
-/**
- * Open one category row's edit drawer and wait until it owns the keyboard.
- *
- * The drawer arrives through an HTMX swap targeting #category-drawer-host. Its
- * fields are in the document as soon as that swap lands, but its focus arrives
- * later: htmx processes the swapped nodes and honours the name field's
- * `autofocus`, which moves focus off the drawer's first control. A field filled
- * before that point is typed into whichever element holds focus when the
- * keystroke is delivered, not into the one the journey addressed, so a
- * description typed while the drawer is still settling is saved as part of the
- * category name. Waiting for the name field to take focus is the state the
- * typing depends on, and it also proves the drawer was rendered for the row this
- * journey opened.
- */
-async function openCategoryDrawer(
+/** Open the exact category's details, waiting for a fetch only when not cached. */
+// The permanent inspector (>= 1100px) has no row pencil: selecting the row and
+// pressing Enter is the public way to open and focus its properties.
+async function openRowDetails(row: Locator): Promise<void> {
+  await row.focus();
+  await row.press("Enter");
+}
+
+async function openCategoryDetails(
   page: Page,
   row: Locator,
   expected: { name: string; description: string },
 ): Promise<Locator> {
   const id = await catalogNodeId(row, `category ${expected.name}`);
-  const responsePromise = page.waitForResponse((response) => {
-    if (response.request().headers()["hx-request"] !== "true") return false;
-    if (response.request().method() !== "GET") return false;
-    return new URL(response.url()).pathname === `/categories/${id}/edit`;
-  });
-  await row.getByRole("button", { name: /actions for/i }).click();
-  await row.getByRole("menuitem", { name: "Edit category", exact: true }).click();
-  const response = await responsePromise;
-  expect(response.status(), `the edit drawer for ${expected.name}`).toBe(200);
-
-  const drawer = page.getByRole("dialog", { name: /Edit category/i });
+  const details = page.getByRole("region", { name: expected.name, exact: true });
+  const responsePromise = (await details.count())
+    ? null
+    : page.waitForResponse(
+        (response) =>
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname === `/categories/${id}/details`,
+      );
+  await openRowDetails(row);
+  if (responsePromise)
+    expect((await responsePromise).status(), `the details for ${expected.name}`).toBe(200);
+  const drawer = details;
   await expect(drawer).toBeVisible();
-  const name = page.locator("#category-name");
+  const name = drawer.getByLabel("Name", { exact: true });
   await expect(name).toBeFocused();
   await expect(name).toHaveValue(expected.name);
   await expect(drawer.getByLabel("Description", { exact: true })).toHaveValue(expected.description);
@@ -184,555 +184,249 @@ test.describe("Categories", () => {
     await stopServer();
   });
 
-  test("categories index shows seeded category with workflow badge", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    const obs = collectObservability(page);
+  // ---------------------------------------------------------------------------
+  // The catalog folder tree (issue #484). Folders nest without limit and hold
+  // categories. A category's workflow steps decide which desk handles it, so a
+  // row shows the workflow, not a desk.
+  // ---------------------------------------------------------------------------
+
+  test("the catalog opens in the tree with categories and their workflows", async ({ page }) => {
     await loginAsSeeded(page);
-    await page.goto(base() + "/categories");
-    await expect(page.locator("h1").filter({ hasText: "Catalog" })).toBeVisible();
-    // One tree holds every level (issue #387), so the seeded hierarchy is visible
-    // without a drill-down: department, desk and category rows are all present.
-    await expect(page.locator(".catalog-tree")).toBeVisible();
-    const seededDepartment = catalogNode(page, "department", "Unassigned");
-    await expect(seededDepartment).toHaveCount(1);
-    const seededDesk = catalogNode(page, "desk", "General Support");
-    await expect(seededDesk).toHaveCount(1);
-    // The desk row states its agent count (the seed staffs it) and its open work,
-    // which is the per-row health the tree added.
-    await expect(
-      seededDesk.locator(".catalog-badge-none, .catalog-node-meta").first(),
-    ).toContainText(/no agents|agent/i);
-    await expect(seededDesk.locator('[data-level="category"]')).toHaveCount(1);
-    const seededCategory = catalogCategoryRow(page, "General");
-    await expect(seededCategory).toHaveCount(1);
-    await expect(seededCategory.locator(".catalog-badge")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Areas" })).toHaveCount(0);
-    await assertCanonicalScreen(page, {
-      viewport: 1280,
-      label: "categories index",
-      url: page.url(),
-      role: "root",
-      consoleErrors: obs.consoleErrors,
-      pageErrors: obs.pageErrors,
-      failedRequests: obs.failedRequests,
-      failedResponses: obs.failedResponses,
-    });
-  });
-
-  /**
-   * Search is still a native GET (S3), but it no longer produces a separate
-   * results list: the tree filters in place to the matching nodes plus their
-   * ancestors, marks the matched run, and offers Clear back to /categories.
-   */
-  test("categories search filters the tree in place and clears natively", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await loginAsSeeded(page);
-    await page.goto(base() + "/categories?view=structure");
-
-    const search = page.getByRole("searchbox", {
-      name: "Search departments, desks, or categories",
-    });
-    const icon = page.locator(".category-search .search-icon");
-    await expect(icon).toHaveAttribute("viewBox", "0 0 24 24");
-    await expect(icon).toHaveAttribute("width", "18");
-    await expect(icon).toHaveAttribute("height", "18");
-    await expect(icon).toHaveAttribute("aria-hidden", "true");
-    await expect(icon).toHaveAttribute("focusable", "false");
-
-    const nativeGet = async (trigger: () => Promise<void>, expectedURL: string) => {
-      const responsePromise = page.waitForResponse(
-        (response) =>
-          response.request().isNavigationRequest() &&
-          response.request().method() === "GET" &&
-          response.url() === expectedURL,
-      );
-      const navigationPromise = page.waitForURL(expectedURL);
-      await trigger();
-      const response = await responsePromise;
-      expect(response.status()).toBe(200);
-      expect(response.request().headers()).not.toHaveProperty("hx-request");
-      await navigationPromise;
-    };
-
-    const structureSearchURL = base() + "/categories?q=General&view=structure";
-    await search.fill("General");
-    await nativeGet(async () => search.press("Enter"), structureSearchURL);
-    await expect(search).toHaveValue("General");
-    // The match is marked in the tree, and its ancestors stay so the row keeps its
-    // place: no results list, no navigation away.
-    await expect(page.locator(".catalog-tree mark").first()).toHaveText("General");
-    await expect(page.locator('[data-level="department"]').first()).toBeVisible();
-    await expect(page.locator("#category-search-results")).toHaveCount(0);
-
-    // Reloading keeps the filter (it is a URL parameter).
-    await page.reload();
-    await expect(search).toHaveValue("General");
-    await expect(page.locator('[data-level="desk"]').first()).toBeVisible();
-
-    // The mobile viewport shows the same filtered tree with indentation.
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.locator('[data-level="category"]').first()).toBeVisible();
-    await assertNoHorizontalOverflow(page, 390);
-
-    // Clear returns to the plain catalog URL, keeping nothing of the query.
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await nativeGet(
-      async () => page.getByRole("link", { name: "Clear search", exact: true }).click(),
-      base() + "/categories",
-    );
-    await expect(search).toHaveValue("");
-    await expect(page.locator(".catalog-tree mark")).toHaveCount(0);
-
-    // A query with no match states the empty result and still offers Clear.
-    await page.goto(base() + "/categories?q=nothing-matches-this");
-    await expect(page.locator(".catalog-tree .category-empty")).toContainText("match your search");
-    await expect(page.locator('[data-level="department"]')).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Clear search", exact: true })).toBeVisible();
-  });
-
-  /**
-   * Needs attention is a native GET chip that composes with the query and keeps
-   * the ancestors of every issue it shows.
-   */
-  test("Needs attention filters the tree and toggles off natively", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await loginAsSeeded(page);
-    await page.goto(base() + "/categories");
-
-    const chip = page.locator(".catalog-attention-chip");
-    await expect(chip).toBeVisible();
-    const label = (await chip.innerText()).trim();
-    expect(label).toMatch(/^Needs attention · \d+$/);
-    await expect(chip).not.toHaveClass(/is-active/);
-
-    const nativeGet = async (
-      trigger: () => Promise<void>,
-      expectedURL: string | RegExp | ((url: URL) => boolean),
-    ) => {
-      const navigationPromise = page.waitForURL(expectedURL);
-      await trigger();
-      await navigationPromise;
-    };
-
-    await nativeGet(async () => chip.click(), /\/categories\?attention=1$/);
-    const active = page.locator(".catalog-attention-chip");
-    await expect(active).toHaveClass(/is-active/);
-    await expect(active).toHaveText(label);
-    // Whatever the filtered tree shows, it is a subset of the full tree and every
-    // row still has its parent level above it.
-    await expect(page.locator('[data-level="desk"]').first()).toBeVisible();
-    await expect(page.locator('[data-level="department"]').first()).toBeVisible();
-
-    // Composed with the query: both parameters ride on one URL.
-    const search = page.getByRole("searchbox", {
-      name: "Search departments, desks, or categories",
-    });
-    await search.fill("General");
-    await search.press("Enter");
-    await page.waitForURL(
-      (url) => url.searchParams.get("q") === "General" && url.searchParams.get("attention") === "1",
-    );
-    await expect(page.locator(".catalog-attention-chip")).toHaveClass(/is-active/);
-
-    // The active chip toggles only its own filter off, keeping the query: that is
-    // what makes the two controls compose instead of reset each other.
-    await nativeGet(
-      async () => page.locator(".catalog-attention-chip").click(),
-      (url) => url.searchParams.get("q") === "General" && !url.searchParams.has("attention"),
-    );
-    await expect(page.locator(".catalog-attention-chip")).not.toHaveClass(/is-active/);
-  });
-
-  /**
-   * The tree is entirely on the page, so its open/closed state is a browser
-   * preference, not a navigation: departments and desks carry a disclosure
-   * button, the collapsed set lives in localStorage under tkt.catalog.collapsed,
-   * and it is re-applied after every HTMX swap of the region (S2).
-   */
-  test("the tree remembers collapsed departments and desks across reloads and swaps", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await loginAsSeeded(page);
-    await page.goto(base() + "/categories?view=structure");
-
-    const department = catalogNode(page, "department", "General");
-    const departmentButton = department.locator(
-      ":scope > .catalog-tree-row [data-catalog-disclosure]",
-    );
-    const desk = department.locator('[data-level="desk"]').first();
-    const deskButton = desk.locator(":scope > .catalog-tree-row [data-catalog-disclosure]");
-    const departmentList = page.locator(
-      `#catalog-${await department.getAttribute("data-catalog-slug")}`,
-    );
-
-    // Everything renders expanded by default, with the accessible name saying
-    // what the button will do.
-    await expect(departmentButton).toHaveAttribute("aria-expanded", "true");
-    await expect(departmentButton).toHaveAttribute("aria-label", "Collapse General");
-    await expect(departmentList).toBeVisible();
-
-    await departmentButton.click();
-    await expect(departmentButton).toHaveAttribute("aria-expanded", "false");
-    await expect(departmentButton).toHaveAttribute("aria-label", "Expand General");
-    await expect(departmentList).toBeHidden();
-    const stored = await page.evaluate(() => window.localStorage.getItem("tkt.catalog.collapsed"));
-    expect(stored).toContain(await department.getAttribute("data-catalog-slug"));
-
-    // A reload re-applies the stored set to the server's expanded markup.
-    await page.reload();
-    await expect(page.locator(".catalog-tree")).toBeVisible();
-    const persisted = catalogNode(page, "department", "General");
-    await expect(
-      persisted.locator(":scope > .catalog-tree-row [data-catalog-disclosure]"),
-    ).toHaveAttribute("aria-expanded", "false");
-    await expect(
-      page.locator(`#catalog-${await persisted.getAttribute("data-catalog-slug")}`),
-    ).toBeHidden();
-
-    // Expand it again and collapse a desk instead.
-    await persisted.locator(":scope > .catalog-tree-row [data-catalog-disclosure]").click();
-    const innerDesk = persisted.locator('[data-level="desk"]').first();
-    const innerButton = innerDesk.locator(":scope > .catalog-tree-row [data-catalog-disclosure]");
-    await innerButton.click();
-    await expect(innerButton).toHaveAttribute("aria-expanded", "false");
-
-    // An HTMX swap replaces the markup, so the collapsed set has to be applied
-    // to the fresh tree: rename the desk and prove the desk stays collapsed.
-    const deskName = (await innerDesk.locator(".catalog-node-name").first().innerText()).trim();
-    await rowMenu(innerDesk).click();
-    await assertDrawerHtmxSwap(
-      page,
-      async () => {
-        await openRowMenu(innerDesk)
-          .getByRole("menuitem", { name: "Edit desk", exact: true })
-          .click();
-      },
-      {
-        endpoint: (url) => /\/categories\/desks\/\d+\/edit$/.test(new URL(url).pathname),
-        expectedUrl: /\/categories\/desks\/\d+\/edit\?/,
-      },
-    );
-    const drawer = page.getByRole("dialog", { name: /Edit desk/i });
-    const renamed = `${deskName} ${Date.now().toString(36).slice(-4)}`;
-    await drawer.locator("#category-name").fill(renamed);
-    await drawer.getByRole("button", { name: /save changes/i }).click();
-    const renamedDesk = catalogNode(page, "desk", renamed);
-    await expect(renamedDesk).toHaveCount(1);
-    await expect(
-      renamedDesk.locator(":scope > .catalog-tree-row [data-catalog-disclosure]"),
-    ).toHaveAttribute("aria-expanded", "false");
-
-    // "Expand all" / "Collapse all" is one control whose label states the action.
-    const toggle = page.locator("[data-catalog-expand-toggle]");
-    await expect(toggle).toHaveText("Expand all");
-    await toggle.click();
-    await expect(toggle).toHaveText("Collapse all");
-    await expect(
-      renamedDesk.locator(":scope > .catalog-tree-row [data-catalog-disclosure]"),
-    ).toHaveAttribute("aria-expanded", "true");
-    await toggle.click();
-    await expect(toggle).toHaveText("Expand all");
-    await expect(
-      catalogNode(page, "department", "General").locator(
-        ":scope > .catalog-tree-row [data-catalog-disclosure]",
-      ),
-    ).toHaveAttribute("aria-expanded", "false");
-
-    // A filtered view ignores the stored set: the rows the filter found must be
-    // visible even though the user collapsed them.
-    await page.goto(base() + "/categories?q=General");
-    await expect(
-      catalogNode(page, "department", "General").locator(
-        ":scope > .catalog-tree-row [data-catalog-disclosure]",
-      ),
-    ).toHaveAttribute("aria-expanded", "true");
-  });
-
-  /**
-   * One New menu replaced the three creation launchers (S5): it opens the same
-   * three drawers through the same routes and HTMX contract.
-   */
-  test("the header New menu opens every creation drawer", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await loginAsSeeded(page);
-    await page.goto(base() + "/categories?view=structure");
-
-    const newMenu = page.locator("[data-catalog-new-toggle]");
-    await expect(newMenu).toHaveAttribute("aria-expanded", "false");
-    await newMenu.click();
-    await expect(newMenu).toHaveAttribute("aria-expanded", "true");
-    const menu = page.locator("#catalog-new-menu");
-    await expect(menu).toBeVisible();
-
-    for (const tc of [
-      { item: "New department", path: "/categories/departments/new", dialog: /New department/i },
-      { item: "New desk", path: "/categories/desks/new", dialog: /New desk/i },
-      { item: "New category", path: "/categories/new", dialog: /New category/i },
-    ]) {
-      // The menu is already open on the first pass and closed after each close.
-      if ((await newMenu.getAttribute("aria-expanded")) === "false") await newMenu.click();
-      await expect(newMenu).toHaveAttribute("aria-expanded", "true");
-      await assertDrawerHtmxSwap(
-        page,
-        async () => {
-          await menu.getByRole("link", { name: tc.item, exact: true }).click();
-        },
-        {
-          endpoint: (url) => new URL(url).pathname === tc.path,
-          expectedUrl: new RegExp(`${tc.path.replace(/\./g, "\\.")}\\?view=structure$`),
-        },
-      );
-      const drawer = page.getByRole("dialog", { name: tc.dialog });
-      await expect(drawer).toBeVisible();
-      await drawer.getByRole("button", { name: "Close catalog details", exact: true }).click();
-      await expect(drawer).toHaveCount(0);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      const obs = collectObservability(page);
+      await page.goto(base() + "/categories");
+      await expect(page.locator("h1")).toHaveText("Catalog");
+      // The seed's catalog: migration 0045 removed the empty General › General
+      // folders the old department and desk left behind (S17), so the seeded
+      // categories sit at the top level.
+      await expect(catalogNode(page, "folder", "General")).toHaveCount(0);
+      const general = catalogCategoryRow(page, "General");
+      await expect(general).toHaveCount(1);
+      await expect(general.locator(".catalog-desk-chip")).toHaveCount(0);
+      await expect(general.locator(".catalog-badge").first()).toContainText("Workflow v1");
+      await expect(page.locator(".catalog-folder-tree")).toBeVisible();
+      await assertCanonicalScreen(page, {
+        viewport: width,
+        label: `catalog tree @ ${width}`,
+        url: page.url(),
+        role: "root",
+        consoleErrors: obs.consoleErrors,
+        pageErrors: obs.pageErrors,
+        failedRequests: obs.failedRequests,
+        failedResponses: obs.failedResponses,
+      });
     }
   });
 
-  /**
-   * Row menus keep every action they had and add the two creation shortcuts,
-   * preselected on the existing routes (S5).
-   */
-  test("row menus add a desk and a category preselected on their parent", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+  test("folders are created and nested in the tree", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
     await loginAsSeeded(page);
-    await page.goto(base() + "/categories?view=structure");
+    await page.goto(base() + "/categories");
+    const top = "Browse " + Date.now().toString(36);
 
-    const department = catalogNode(page, "department", "General");
-    const departmentID = await catalogNodeId(department, "the General department");
-    const desk = department.locator('[data-level="desk"]').first();
-    const deskID = await catalogNodeId(desk, "the first General desk");
-
-    await rowMenu(department).click();
-    await assertDrawerHtmxSwap(
-      page,
-      async () => {
-        await openRowMenu(department)
-          .getByRole("menuitem", { name: "Add desk", exact: true })
-          .click();
-      },
-      {
-        endpoint: (url) => new URL(url).pathname === "/categories/desks/new",
-        expectedUrl: new RegExp(
-          `/categories/desks/new\\?view=structure&department_id=${departmentID}$`,
-        ),
-      },
+    await page.locator('[role="tree"]').focus();
+    await page.keyboard.press("Shift+F10");
+    await page.getByRole("menuitem", { name: "New folder", exact: true }).click();
+    const input = page.locator('.catalog-inline-create input[name="name"]');
+    await input.fill(top);
+    await input.press("Enter");
+    const topRow = catalogNode(page, "folder", top);
+    await expect(topRow).toHaveCount(1);
+    await expect(page.locator("[data-catalog-create-row]")).toHaveCount(0);
+    await expect(topRow).toHaveAttribute("aria-selected", "true");
+    await topRow.locator(":scope > .catalog-tree-row").hover();
+    await topRow.locator(":scope > .catalog-tree-row [data-catalog-add]").click();
+    const nestedCreator = page.locator("[data-catalog-create-row]");
+    await expect(nestedCreator).toHaveAttribute("data-folder-id", await catalogNodeId(topRow, top));
+    await nestedCreator.getByRole("button", { name: "Folder", exact: true }).click();
+    await input.fill("Hardware");
+    await input.press("Enter");
+    const child = catalogNode(page, "folder", "Hardware");
+    await expect(child).toHaveCount(1);
+    await expect(child).toHaveAttribute("data-parent-id", await catalogNodeId(topRow, top));
+    await expect(nestedCreator).toHaveCount(0);
+    await expect(child).toHaveAttribute("aria-selected", "true");
+    await topRow.locator(":scope > .catalog-tree-row [data-catalog-add]").click();
+    await expect(nestedCreator).toHaveAttribute("data-folder-id", await catalogNodeId(topRow, top));
+    await nestedCreator.getByRole("button", { name: "Folder", exact: true }).click();
+    await input.fill("HARDWARE");
+    const refusal = page.waitForResponse(
+      (response) => response.url().endsWith("/categories/folders") && response.status() === 409,
     );
-    const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
-    await expect(deskDrawer.locator("select[name=department_id]")).toHaveValue(departmentID);
-    await deskDrawer.getByRole("button", { name: "Close catalog details", exact: true }).click();
-    await expect(deskDrawer).toHaveCount(0);
-
-    await rowMenu(desk).click();
-    await assertDrawerHtmxSwap(
-      page,
-      async () => {
-        await openRowMenu(desk)
-          .getByRole("menuitem", { name: "Add category", exact: true })
-          .click();
-      },
-      {
-        endpoint: (url) => new URL(url).pathname === "/categories/new",
-        expectedUrl: new RegExp(
-          `/categories/new\\?view=structure&department_id=${departmentID}&desk_id=${deskID}$`,
-        ),
-      },
+    await input.press("Enter");
+    await refusal;
+    await expect(page.locator(".catalog-inline-create .catalog-inline-error")).toHaveText(
+      "A folder with that name already exists here.",
     );
-    const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
-    await expect(categoryDrawer.locator("select[name=desk_id]")).toHaveValue(deskID);
-    await categoryDrawer
-      .getByRole("button", { name: "Close catalog details", exact: true })
-      .click();
-    await expect(categoryDrawer).toHaveCount(0);
+    await expect(input).toHaveAttribute("aria-invalid", "true");
+    await input.press("Escape");
+    await expect(child).toHaveCount(1);
+    await expect(page).toHaveURL(/\/categories$/);
+    await page.reload();
+    await expect(topRow).toHaveCount(1);
+    await expect(child).toHaveAttribute("data-parent-id", await catalogNodeId(topRow, top));
   });
 
-  test("Unassigned drawer edits push reloadable legacy context", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+  test("a folder never moves into itself and a folder with contents is not deleted", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
     await loginAsSeeded(page);
+    const suffix = Date.now().toString(36);
+    const parentID = await createFolderViaUi(page, "Parent " + suffix);
+    const childID = await createFolderViaUi(page, "Child " + suffix, parentID);
 
-    const unassignedContext = "/categories?view=structure&department_id=unassigned";
-    await page.goto(base() + unassignedContext);
+    // The move drawer offers neither the folder nor anything below it.
+    await page.goto(base() + `/categories/folders/${parentID}/move`);
+    const move = page.getByRole("dialog", { name: /Move/i });
+    await expect(move).toBeVisible();
+    await expect(move.locator(`select[name=folder_id] option[value="${parentID}"]`)).toHaveCount(0);
+    await expect(move.locator(`select[name=folder_id] option[value="${childID}"]`)).toHaveCount(0);
+    await expect(move).toContainText("Moving never changes workflows or existing tickets.");
 
-    // The virtual Unassigned group has no stored Department row, so neither
-    // Edit nor Delete can succeed against id -1. The structure page must not
-    // offer the impossible action, while real departments keep their menu.
-    const unassignedDepartment = catalogNode(page, "department", "Unassigned");
-    await expect(unassignedDepartment).toHaveCount(1);
-    await expect(rowMenu(unassignedDepartment)).toHaveCount(0);
-    await expect(
-      unassignedDepartment.locator('a[href*="/categories/departments/-1/edit"]'),
-    ).toHaveCount(0);
-    await expect(page.locator('form[action="/categories/departments/-1/delete"]')).toHaveCount(0);
-    const realDepartment = catalogNode(page, "department", "General");
-    await expect(realDepartment).toHaveCount(1);
-    await expect(rowMenu(realDepartment)).toHaveCount(1);
-
-    const legacyDeskName = "General Support";
-    const legacyDesk = catalogNode(page, "desk", legacyDeskName);
-    await expect(legacyDesk).toHaveCount(1);
-    const legacyDeskID = await catalogNodeId(legacyDesk, `desk ${legacyDeskName}`);
-
-    await rowMenu(legacyDesk).click();
-    const legacyDeskMenu = openRowMenu(legacyDesk);
-    const legacyDeskEdit = legacyDeskMenu.getByRole("menuitem", {
-      name: "Edit desk",
-      exact: true,
-    });
-    const legacyDeskURL = new RegExp(
-      `/categories/desks/${legacyDeskID}/edit\\?view=structure&department_id=unassigned&desk_id=${legacyDeskID}$`,
+    // Deleting the parent asks first and is refused while it holds the child.
+    await page.goto(base() + `/categories?folder=${parentID}`);
+    await catalogNode(page, "folder", "Parent " + suffix)
+      .locator(":scope > .catalog-tree-row [data-category-menu]")
+      .click();
+    await page.getByRole("menuitem", { name: "Delete folder" }).click();
+    const confirm = page.locator("#category-delete-dialog");
+    await expect(confirm.locator("#category-delete-title")).toHaveText(
+      `Delete the folder “Parent ${suffix}”?`,
     );
-    await assertDrawerHtmxSwap(
-      page,
-      async () => {
-        await legacyDeskEdit.click();
-      },
-      {
-        endpoint: (url) => {
-          const requestURL = new URL(url);
-          return (
-            requestURL.pathname === `/categories/desks/${legacyDeskID}/edit` &&
-            requestURL.searchParams.get("view") === "structure" &&
-            requestURL.searchParams.get("department_id") === "unassigned" &&
-            requestURL.searchParams.get("desk_id") === legacyDeskID
-          );
-        },
-        expectedUrl: legacyDeskURL,
-      },
+    await confirm.locator("[data-category-delete-confirm]").click();
+    await expect(page.locator(".error-banner")).toHaveText(
+      "This folder isn't empty. Move or delete its folders and categories first.",
     );
-    const legacyDeskDrawer = page.getByRole("dialog", { name: /Edit desk/i });
-    await expect(legacyDeskDrawer.locator("#category-name")).toHaveValue(legacyDeskName);
-    await page.reload();
-    await expect(page).toHaveURL(legacyDeskURL);
-    await expect(
-      page.getByRole("dialog", { name: /Edit desk/i }).locator("#category-name"),
-    ).toHaveValue(legacyDeskName);
-    await expect(page.locator("body")).not.toContainText("invalid identifier");
-
-    await page.goto(base() + `${unassignedContext}&desk_id=${legacyDeskID}`);
-    const legacyCategoryName = "Legacy Support Category";
-    const legacyCategory = catalogCategoryRow(page, legacyCategoryName);
-    await expect(legacyCategory).toHaveCount(1);
-    const legacyCategoryID = await catalogNodeId(legacyCategory, `category ${legacyCategoryName}`);
-
-    await rowMenu(legacyCategory).click();
-    const legacyCategoryMenu = openRowMenu(legacyCategory);
-    const legacyCategoryEdit = legacyCategoryMenu.getByRole("menuitem", {
-      name: "Edit category",
-      exact: true,
-    });
-    const legacyCategoryURL = new RegExp(
-      `/categories/${legacyCategoryID}/edit\\?view=structure&department_id=unassigned&desk_id=${legacyDeskID}$`,
-    );
-    await assertDrawerHtmxSwap(
-      page,
-      async () => {
-        await legacyCategoryEdit.click();
-      },
-      {
-        endpoint: (url) => {
-          const requestURL = new URL(url);
-          return (
-            requestURL.pathname === `/categories/${legacyCategoryID}/edit` &&
-            requestURL.searchParams.get("view") === "structure" &&
-            requestURL.searchParams.get("department_id") === "unassigned" &&
-            requestURL.searchParams.get("desk_id") === legacyDeskID
-          );
-        },
-        expectedUrl: legacyCategoryURL,
-      },
-    );
-    const legacyCategoryDrawer = page.getByRole("dialog", {
-      name: /Edit category/i,
-    });
-    await expect(legacyCategoryDrawer.locator("#category-name")).toHaveValue(legacyCategoryName);
-    await page.reload();
-    await expect(page).toHaveURL(legacyCategoryURL);
-    await expect(
-      page.getByRole("dialog", { name: /Edit category/i }).locator("#category-name"),
-    ).toHaveValue(legacyCategoryName);
-    await expect(page.locator("body")).not.toContainText("invalid identifier");
+    await expect(page).toHaveURL(new RegExp(`/categories\\?folder=${parentID}$`));
+    await expect(catalogNode(page, "folder", "Child " + suffix)).toHaveCount(1);
   });
 
-  // Issue #266: a legacy category lives on a Desk whose department_id is NULL,
-  // so it is reachable only through the virtual Unassigned group. Editing it
-  // must expose that Desk and that virtual Department, and a plain rename must
-  // keep the stored location instead of silently relocating the category to the
-  // first real Desk.
-  test("legacy category edit keeps its Unassigned desk on save", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+  test("a category is created in a folder without a desk and moved without touching its workflow", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 2000 });
     await loginAsSeeded(page);
+    const suffix = Date.now().toString(36);
+    const folderID = await createFolderViaUi(page, "Access " + suffix);
+    const name = "Password reset " + suffix;
 
-    const legacyDeskName = "General Support";
-    await page.goto(base() + "/categories?view=structure&department_id=unassigned");
-    const legacyDesk = catalogNode(page, "desk", legacyDeskName);
-    await expect(legacyDesk).toHaveCount(1);
-    const legacyDeskID = await catalogNodeId(legacyDesk, `desk ${legacyDeskName}`);
+    await page.goto(base() + `/categories?folder=${folderID}`);
+    const folder = page.locator(`li[data-level="folder"][data-catalog-id="${folderID}"]`);
+    await folder.locator(":scope > .catalog-tree-row").hover();
+    await folder.locator(":scope > .catalog-tree-row [data-catalog-add]").click();
+    const create = page.locator(".catalog-inline-create");
+    await expect(create).toHaveAttribute("data-folder-id", folderID);
+    // Workflow steps name the desk (issue #491, S1), so the row asks only for a name.
+    await expect(create.locator("select")).toHaveCount(0);
+    await create.locator('input[name="name"]').fill(name);
+    await create.locator('input[name="name"]').press("Enter");
+    await expect(catalogCategoryRow(page, name)).toHaveCount(1);
+    await expect(create).toHaveCount(0);
+    await expect(catalogCategoryRow(page, name)).toHaveAttribute("aria-selected", "true");
+    await expect(page).toHaveURL(new RegExp(`/categories\\?folder=${folderID}$`));
+    const row = catalogCategoryRow(page, name);
+    await expect(row.locator(".catalog-desk-chip")).toHaveCount(0);
 
-    await page.goto(
-      base() + `/categories?view=structure&department_id=unassigned&desk_id=${legacyDeskID}`,
+    // Editing shows the folder the category has, and no desk.
+    const editDrawer = await openCategoryDetails(page, row, { name, description: "" });
+    await expect(editDrawer.locator("input[name=folder_id]")).toHaveValue(folderID);
+    await expect(editDrawer.locator("select[name=desk_id]")).toHaveCount(0);
+    await editDrawer.getByRole("button", { name: "Discard" }).click();
+    await expect(editDrawer).toBeVisible();
+    await expect(editDrawer.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    await expect(row).toBeFocused();
+
+    // Moving to the top level keeps the category's id and workflow link.
+    const id = await catalogNodeId(row, `category ${name}`);
+    const tree = page.locator(".catalog-tree");
+    const box = await tree.boundingBox();
+    if (!box) throw new Error("missing catalog tree");
+    await row.locator(":scope > .catalog-tree-row").hover();
+    await row.locator(":scope > .catalog-tree-row > .catalog-drag-grip").dragTo(tree, {
+      targetPosition: { x: box.width / 2, y: box.height - 20 },
+    });
+    await expect(row).toHaveAttribute("data-parent-id", "0");
+    await page.goto(base() + "/categories");
+    const moved = catalogCategoryRow(page, name);
+    await expect(moved).toHaveCount(1);
+    expect(await catalogNodeId(moved, name)).toBe(id);
+    await expect(moved.getByRole("link", { name })).toHaveAttribute(
+      "href",
+      `/categories/${id}/workflow`,
     );
-    const legacyCategoryName = "Legacy Support Category";
-    const legacyCategory = catalogCategoryRow(page, legacyCategoryName);
-    await expect(legacyCategory).toHaveCount(1);
-    const legacyCategoryID = await catalogNodeId(legacyCategory, `category ${legacyCategoryName}`);
+  });
 
-    await rowMenu(legacyCategory).click();
-    await openRowMenu(legacyCategory)
-      .getByRole("menuitem", { name: "Edit category", exact: true })
-      .click();
+  test("search and Needs attention filter the tree in place", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await loginAsSeeded(page);
+    const suffix = Date.now().toString(36);
+    const folder = "Searchable " + suffix;
+    const folderID = await createFolderViaUi(page, folder);
+    await createCategoryInFolder(page, {
+      name: "Inside " + suffix,
+      folderID,
+    });
 
-    const drawer = page.getByRole("dialog", { name: /Edit category/i });
-    await expect(drawer).toBeVisible();
-    // The real location is exposed and preselected, not an empty required pair.
-    await expect(drawer.locator("#category-department")).toHaveValue("unassigned");
-    await expect(drawer.locator("#category-desk")).toHaveValue(legacyDeskID);
+    {
+      await page.goto(base() + "/categories");
+      const search = page.getByRole("searchbox", { name: "Search folders and categories" });
+      await search.fill(folder);
+      await search.press("Enter");
+      await expect(page).toHaveURL(/q=Searchable/);
+      // A folder's name reaches the categories below it.
+      await expect(catalogCategoryRow(page, "Inside " + suffix)).toHaveCount(1);
+      await expect(page.locator("mark", { hasText: folder })).toHaveCount(1);
+      await expect(catalogCategoryRow(page, "General")).toHaveCount(0);
+      await page.getByRole("link", { name: "Clear search" }).click();
+      await expect(page).toHaveURL(/\/categories$/);
 
-    const renamed = `${legacyCategoryName} ${Date.now()}`;
-    await drawer.locator("#category-name").fill(renamed);
-    await assertHtmxSwap(
-      page,
-      async () => {
-        await drawer.getByRole("button", { name: /save changes/i }).click();
-      },
-      {
-        endpoint: (url) => new URL(url).pathname === `/categories/${legacyCategoryID}/edit`,
-        method: "POST",
-        expectedStatus: 200,
-        hxTarget: "#categories-background",
-        expectedUrl: new RegExp(
-          `/categories\\?department_id=unassigned&desk_id=${legacyDeskID}&view=structure$`,
-        ),
-      },
-    );
-    await expect(catalogCategoryRow(page, renamed)).toBeVisible();
+      const chip = page.locator(".catalog-attention-chip");
+      await expect(chip).toContainText("Needs attention");
+      await chip.click();
+      await expect(page).toHaveURL(/attention=1/);
+      await expect(chip).toHaveAttribute("aria-current", "true");
+      await expect(catalogCategoryRow(page, "Inside " + suffix)).toBeVisible();
+      await expect(catalogNode(page, "folder", folder)).toBeVisible();
+      await expect(page.locator(".catalog-tree-row-folder .catalog-badge")).toHaveCount(0);
+      await chip.click();
+      await expect(page).toHaveURL(/\/categories$/);
+    }
+  });
 
-    // Reloading the drawer reads the persisted location: still the legacy desk.
-    await page.goto(
-      base() +
-        `/categories/${legacyCategoryID}/edit?view=structure&department_id=unassigned&desk_id=${legacyDeskID}`,
-    );
-    const reloaded = page.getByRole("dialog", { name: /Edit category/i });
-    await expect(reloaded.locator("#category-name")).toHaveValue(renamed);
-    await expect(reloaded.locator("#category-department")).toHaveValue("unassigned");
-    await expect(reloaded.locator("#category-desk")).toHaveValue(legacyDeskID);
+  test("the Tree layout remembers collapsed folders and caps the indent past level four", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await loginAsSeeded(page);
+    const suffix = Date.now().toString(36);
+    let parent = "";
+    const ids: string[] = [];
+    for (let level = 1; level <= 6; level++) {
+      parent = await createFolderViaUi(page, `Deep${level} ${suffix}`, parent);
+      ids.push(parent);
+    }
+    await page.goto(base() + "/categories");
+    const level5 = page.locator(`li[data-catalog-id="${ids[4]}"]`);
+    await expect(level5.locator(":scope > .catalog-tree-row .catalog-level")).toHaveText("Level 5");
+    const indent = (id: string) =>
+      page
+        .locator(`li[data-catalog-id="${id}"] > .catalog-tree-row`)
+        .evaluate((row) => row.getBoundingClientRect().left);
+    expect(await indent(ids[4])).toBe(await indent(ids[3]));
+    expect(await indent(ids[3])).toBeGreaterThan(await indent(ids[2]));
 
-    // The real General desk did not gain the category.
-    await page.goto(base() + "/categories?view=structure");
-    // The tree renders every level at once, so the location is asserted where it
-    // actually lives: the renamed row still names the legacy desk it was on, and
-    // the General desk does not hold it.
-    await page.goto(base() + "/categories?view=structure");
-    const renamedRow = catalogCategoryRow(page, renamed);
-    await expect(renamedRow).toHaveCount(1);
-    await expect(renamedRow).toHaveAttribute("data-desk-id", legacyDeskID);
-    const generalDesk = catalogNode(page, "desk", "General");
-    const generalDeskID = await catalogNodeId(generalDesk, "the General desk");
+    const top = page.locator(`li[data-catalog-id="${ids[0]}"]`);
+    await toggleCatalogNode(top);
+    await expect(level5).toBeHidden();
+    await page.reload();
     await expect(
-      page.locator(
-        `[data-level="desk"][data-catalog-id="${generalDeskID}"] [data-level="category"]`,
-      ),
-    ).not.toHaveAttribute("data-catalog-id", await renamedRow.getAttribute("data-catalog-id"));
+      top.locator(":scope > .catalog-tree-row [data-catalog-disclosure]"),
+    ).toHaveAttribute("aria-expanded", "false");
+    await toggleCatalogNode(top);
+    await expect(level5).toBeVisible();
+    await assertNoHorizontalOverflow(page, 1280);
   });
 
   test("a drawer launcher that receives a 4xx shows non-retry feedback and opens no panel", async ({
@@ -740,14 +434,10 @@ test.describe("Categories", () => {
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
-    await page.goto(base() + "/categories?view=structure");
-    await expect(page.locator(".catalog-tree")).toBeVisible();
-
-    // #267 removed the virtual Unassigned group's impossible Edit action from the
-    // page, but the route still rejects it. This probe reproduces the launcher
-    // markup the page used to render so the failure surface is exercised against
-    // the real 422, through the real htmx pipeline.
-    const failedURL = "/categories/departments/-1/edit?view=structure&department_id=-1";
+    await page.goto(base() + "/categories");
+    // A launcher for a folder that does not exist answers a plain 404 with no
+    // HX-Retarget, the case htmx leaves unswapped and silent.
+    const failedURL = "/categories/folders/999999/edit";
     await page.evaluate((href) => {
       const probe = document.createElement("a");
       probe.id = "drawer-load-4xx-probe";
@@ -757,13 +447,12 @@ test.describe("Categories", () => {
       probe.setAttribute("hx-target", "#category-drawer-host");
       probe.setAttribute("hx-swap", "outerHTML");
       probe.setAttribute("hx-push-url", href);
-      probe.textContent = "Edit department";
-      document.querySelector(".catalog-tree")?.prepend(probe);
+      probe.textContent = "Rename folder";
+      document.querySelector("#categories-background")?.prepend(probe);
       (window as unknown as { htmx: { process: (el: Element) => void } }).htmx.process(probe);
     }, failedURL);
 
     const drawerHost = page.locator("#category-drawer-host");
-    await expect(drawerHost).toHaveCount(1);
     const navigations: string[] = [];
     const navigationHandler = (request: Request) => {
       if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
@@ -775,26 +464,20 @@ test.describe("Categories", () => {
       const responsePromise = page.waitForResponse(
         (response) =>
           response.request().headers()["hx-request"] === "true" &&
-          response.request().method() === "GET" &&
-          new URL(response.url()).pathname === "/categories/departments/-1/edit",
+          new URL(response.url()).pathname === failedURL,
       );
       const urlBefore = page.url();
       await page.locator("#drawer-load-4xx-probe").click();
       const response = await responsePromise;
-      // Server-side rejection is unchanged: this fix is client-side only. The
-      // plain 4xx carries no HX-Retarget, which is exactly the case htmx leaves
-      // unswapped and silent.
-      expect(response.status()).toBe(422);
+      expect(response.status()).toBe(404);
       expect(response.headers()["hx-retarget"]).toBeUndefined();
       await expect(drawerHost.locator(".category-drawer")).toHaveCount(0);
       const feedback = page.locator("#save-feedback");
       await expect(feedback).toBeVisible();
       await expect(feedback).toHaveAttribute("role", "alert");
-      await expect(feedback).toHaveAttribute("aria-live", "assertive");
       await expect(feedback.locator(".save-feedback-message")).toHaveText(
         "This panel can't be opened. It may no longer be available.",
       );
-      await expect(feedback).not.toContainText("Please try again.");
       expect(page.url()).toBe(urlBefore);
       expect(navigations).toEqual([]);
     } finally {
@@ -807,23 +490,14 @@ test.describe("Categories", () => {
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
-    await page.goto(base() + "/categories?view=structure");
-    await expect(page.locator(".catalog-tree")).toBeVisible();
-
-    await page.locator("[data-catalog-new-toggle]").click();
-    const launcher = page
-      .locator(".catalog-new .category-overflow-menu:not([hidden]) .category-drawer-launcher")
-      .first();
+    const deskID = await createDeskViaUi(page, "Transport retry desk");
+    const row = page.locator(`tr[data-desk-id="${deskID}"]`);
+    const launcher = row.locator(".desks-launcher");
     const launcherPath = new URL((await launcher.getAttribute("hx-get")) ?? "", base()).pathname;
     const launcherMatcher = (url: URL) => url.pathname === launcherPath;
     let aborted = false;
     const abortLauncher = async (route: Route) => {
-      const request = route.request();
-      if (
-        request.method() === "GET" &&
-        request.headers()["hx-request"] === "true" &&
-        new URL(request.url()).pathname === launcherPath
-      ) {
+      if (route.request().headers()["hx-request"] === "true") {
         aborted = true;
         await route.abort("failed");
         return;
@@ -832,418 +506,16 @@ test.describe("Categories", () => {
     };
     await page.route(launcherMatcher, abortLauncher);
     try {
-      const requestPromise = page.waitForRequest(
-        (request) =>
-          request.method() === "GET" &&
-          request.headers()["hx-request"] === "true" &&
-          new URL(request.url()).pathname === launcherPath,
-      );
       await launcher.click();
-      await requestPromise;
       await expect.poll(() => aborted).toBe(true);
       const feedback = page.locator("#save-feedback");
       await expect(feedback).toBeVisible();
       await expect(feedback.locator(".save-feedback-message")).toHaveText(
         "Unable to open this panel. Please try again.",
       );
-      await expect(feedback).not.toContainText("This panel can't be opened.");
       await expect(page.locator("#category-drawer-host .category-drawer")).toHaveCount(0);
     } finally {
       await page.unroute(launcherMatcher, abortLauncher);
-    }
-  });
-
-  test("Structure keeps the tree whole at every width and preserves the selection after an HTMX desk rename", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    const obs = collectObservability(page);
-    await loginAsSeeded(page);
-
-    // One tree at every width, with the header's one New menu as the creation
-    // control. Nothing may overflow, and the header action must keep its label.
-    for (const viewport of [1040, 1081, 1120, 390, 1280]) {
-      await page.setViewportSize({ width: viewport, height: 800 });
-      await page.goto(base() + "/categories?view=structure");
-      await page.evaluate(() => document.fonts.ready);
-      await expect(page.locator("#catalog-tree-title")).toBeVisible();
-      await expect(page.locator(".catalog-tree")).toHaveCSS("border-left-width", "0px");
-      await expect(page.locator("#theme")).toHaveCount(0);
-      const searchBox = await page.locator(".category-search").boundingBox();
-      const attentionBox = await page.locator(".catalog-attention-chip").boundingBox();
-      if (!searchBox || !attentionBox) throw new Error("catalog controls must be visible");
-      expect(searchBox.height).toBe(36);
-      expect(attentionBox.height).toBe(36);
-      if (viewport > 640) expect(Math.abs(searchBox.y - attentionBox.y)).toBeLessThan(1);
-      const geometry = await page.locator(".catalog-tree-row").evaluateAll((rows) => {
-        const textRects = (element: Element) => {
-          const range = document.createRange();
-          range.selectNodeContents(element);
-          return Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
-        };
-        return rows
-          .filter((row) => row.getClientRects().length > 0)
-          .map((row) => {
-            const name = row.querySelector(".catalog-node-name");
-            if (!name) throw new Error("Incomplete catalog row");
-            const bounds = row.getBoundingClientRect();
-            const nameBox = name.getBoundingClientRect();
-            return {
-              viewport: window.innerWidth,
-              row: { left: bounds.left, right: bounds.right },
-              name: { left: nameBox.left, right: nameBox.right, width: nameBox.width },
-              nameText: textRects(name).length,
-            };
-          });
-      });
-      expect(geometry.length, `at ${viewport}px the tree must render rows`).toBeGreaterThan(0);
-      for (const g of geometry) {
-        const evidence = `catalog row at actual ${g.viewport}px: ${JSON.stringify(g)}`;
-        expect(g.viewport).toBe(viewport);
-        expect(g.nameText, evidence).toBeGreaterThan(0);
-        expect(g.name.left, evidence).toBeGreaterThanOrEqual(g.row.left - 1);
-        expect(g.name.right, evidence).toBeLessThanOrEqual(g.row.right + 1);
-      }
-      await assertNoHorizontalOverflow(page, viewport);
-      const newMenu = page.locator("[data-catalog-new-toggle]");
-      await expect(newMenu).toBeVisible();
-      await expect(newMenu).toBeEnabled();
-      const menuBox = await newMenu.boundingBox();
-      const labelLines = await newMenu.evaluate((el) => {
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        return Array.from(range.getClientRects()).filter((rect) => rect.width > 0).length;
-      });
-      expect(menuBox, `at ${viewport}px the New menu must be laid out`).not.toBeNull();
-      expect(labelLines, `at ${viewport}px the New label must not wrap apart`).toBeLessThanOrEqual(
-        2,
-      );
-      await assertDrawerHtmxSwap(
-        page,
-        async () => {
-          await newMenu.click();
-          await page
-            .locator(".catalog-new .category-overflow-menu:not([hidden])")
-            .getByRole("link", { name: "New department", exact: true })
-            .click();
-        },
-        {
-          endpoint: (url) => url === base() + "/categories/departments/new?view=structure",
-          expectedUrl: /\/categories\/departments\/new\?view=structure$/,
-        },
-      );
-      const creationDrawer = page.getByRole("dialog", { name: /New department/i });
-      await expect(creationDrawer).toBeVisible();
-      await expect(creationDrawer).toHaveCSS("width", `${Math.min(520, viewport)}px`);
-      await expect(creationDrawer.locator(".users-drawer-header")).toHaveCSS("padding", "24px");
-      await creationDrawer
-        .getByRole("button", { name: "Close catalog details", exact: true })
-        .click();
-      await expect(creationDrawer).toBeHidden();
-      await expect(page).toHaveURL(base() + "/categories?view=structure");
-    }
-
-    // Only departments are divided: desks and categories sit inside their block.
-    const dividers = await page.locator(".catalog-tree-row").evaluateAll((rows) =>
-      rows.map((row) => ({
-        level: row.closest("[data-level]")?.getAttribute("data-level"),
-        top: getComputedStyle(row).borderTopWidth,
-      })),
-    );
-    expect(dividers.filter((r) => r.level !== "department").every((r) => r.top === "0px")).toBe(
-      true,
-    );
-    expect(dividers.filter((r) => r.level === "department").slice(1).length).toBeGreaterThan(0);
-    expect(
-      dividers
-        .filter((r) => r.level === "department")
-        .slice(1)
-        .every((r) => r.top === "1px"),
-    ).toBe(true);
-
-    // The last row's menu opens below the tree; the tree must not clip it.
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto(base() + "/categories?view=structure");
-    const lastRow = page.locator(".catalog-tree-row").last();
-    await lastRow.locator("[data-category-menu]").click();
-    const openMenu = page.locator(".catalog-tree .category-overflow-menu:not([hidden])");
-    await expect(openMenu).toBeVisible();
-    const lastItem = openMenu.locator("a, button").last();
-    await lastItem.scrollIntoViewIfNeeded();
-    const itemBox = await lastItem.boundingBox();
-    if (!itemBox) throw new Error("the last menu item must have a box");
-    const clipped = await lastItem.evaluate((el) => {
-      const rect = el.getBoundingClientRect();
-      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-      return !hit || !el.contains(hit);
-    });
-    expect(clipped, "the row menu must not be clipped by the tree").toBe(false);
-    expect(
-      await page.locator(".catalog-tree").evaluate((el) => getComputedStyle(el).overflowY),
-    ).toBe("visible");
-    await page.keyboard.press("Escape");
-
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto(base() + "/categories?view=structure");
-    const assignedDepartment = catalogNode(page, "department", "General");
-    await expect(assignedDepartment).toHaveCount(1);
-    const assignedDepartmentID = await catalogNodeId(assignedDepartment, "the General department");
-    const assignedDesk = catalogNode(page, "desk", "General");
-    await expect(assignedDesk).toHaveCount(1);
-    const assignedDeskID = await catalogNodeId(assignedDesk, "the General desk");
-
-    const deskMenu = rowMenu(assignedDesk);
-    const focusKey = await deskMenu.getAttribute("data-focus-key");
-    await deskMenu.click();
-    await assertDrawerHtmxSwap(
-      page,
-      async () => {
-        await openRowMenu(assignedDesk)
-          .getByRole("menuitem", { name: "Edit desk", exact: true })
-          .click();
-      },
-      {
-        endpoint: (url) => {
-          const requestURL = new URL(url);
-          return (
-            requestURL.pathname === `/categories/desks/${assignedDeskID}/edit` &&
-            requestURL.searchParams.get("view") === "structure" &&
-            requestURL.searchParams.get("department_id") === assignedDepartmentID &&
-            requestURL.searchParams.get("desk_id") === assignedDeskID
-          );
-        },
-        expectedUrl: new RegExp(
-          `/categories/desks/${assignedDeskID}/edit[?]view=structure&department_id=${assignedDepartmentID}&desk_id=${assignedDeskID}$`,
-        ),
-      },
-    );
-    const drawer = page.getByRole("dialog", { name: /Edit desk/i });
-    await expect(drawer).toBeVisible();
-    const renamed = "Support desk " + Date.now();
-    await drawer.locator("#category-name").fill(renamed);
-    await drawer.getByRole("button", { name: /save changes/i }).click();
-
-    // The saved desk keeps its place in the tree and its row stays current.
-    await expect(page).toHaveURL(/\/categories\?department_id=\d+&desk_id=\d+&view=structure/);
-    const renamedRow = catalogNode(page, "desk", renamed);
-    await expect(renamedRow).toHaveCount(1);
-    await expect(renamedRow).toHaveAttribute("data-current", "true");
-    await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
-    await expect(page.locator(".category-drawer")).toHaveCount(0);
-    await assertCanonicalScreen(page, {
-      viewport: 1280,
-      label: "structure desk rename",
-      url: page.url(),
-      role: "root",
-      consoleErrors: obs.consoleErrors,
-      pageErrors: obs.pageErrors,
-      failedRequests: obs.failedRequests,
-      failedResponses: obs.failedResponses,
-    });
-  });
-
-  /**
-   * The tree replaced the mobile drill-down: every level is on the page at every
-   * width, at mobile with indentation and a category's health wrapped to a second
-   * line (S9). Nothing may overflow horizontally or collapse a control to a sliver.
-   *
-   * Issue #271's long-name case survives as the wrap proof: the shared seed holds
-   * only short names and must stay read-only, so the long fixture is created and
-   * removed through the public drawers.
-   */
-  test("Structure keeps the whole tree on mobile with indentation and no overflow", async ({
-    page,
-  }) => {
-    await loginAsSeeded(page);
-
-    const longName =
-      "Infrastructure Reliability Escalation Coordination " + Date.now().toString(36);
-    const suffix = Date.now().toString(36);
-    const emptyName = `Empty hierarchy desk ${suffix}`;
-
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto(base() + "/categories?view=structure");
-    const generalDepartment = catalogNode(page, "department", "General");
-    await expect(generalDepartment).toHaveCount(1);
-    const departmentID = await catalogNodeId(generalDepartment, "the General department");
-    const generalDesk = catalogNode(page, "desk", "General");
-    const deskID = await catalogNodeId(generalDesk, "the General desk");
-
-    let longCreated = false;
-    let emptyCreated = false;
-    try {
-      await page.goto(
-        base() + `/categories/new?view=structure&department_id=${departmentID}&desk_id=${deskID}`,
-      );
-      const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
-      await expect(categoryDrawer).toBeVisible();
-      await categoryDrawer.locator("select[name=department_id]").selectOption(departmentID);
-      await categoryDrawer.locator("select[name=desk_id]").selectOption(deskID);
-      await categoryDrawer.locator("#category-name").fill(longName);
-      await categoryDrawer.getByRole("button", { name: "Create category", exact: true }).click();
-      await expect(categoryDrawer).toBeHidden();
-      longCreated = true;
-
-      await page.goto(
-        base() + `/categories/desks/new?view=structure&department_id=${departmentID}`,
-      );
-      const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
-      await expect(deskDrawer).toBeVisible();
-      await deskDrawer.locator("select[name=department_id]").selectOption(departmentID);
-      await deskDrawer.locator("#category-name").fill(emptyName);
-      await deskDrawer.getByRole("button", { name: "Create desk", exact: true }).click();
-      await expect(deskDrawer).toBeHidden();
-      emptyCreated = true;
-
-      const longRow = catalogCategoryRow(page, longName);
-      const shortRow = catalogCategoryRow(page, "General");
-      const emptyRow = catalogNode(page, "desk", emptyName);
-
-      for (const viewport of [390, 640, 1280]) {
-        await page.setViewportSize({ width: viewport, height: 800 });
-        await page.goto(base() + "/categories?view=structure");
-        // No drill-down survives: every level is on the page and there is no Back
-        // control to leave it.
-        await expect(page.locator('[data-level="department"]').first()).toBeVisible();
-        await expect(longRow).toHaveCount(1);
-        await expect(longRow).toBeVisible();
-        await expect(emptyRow).toHaveCount(1);
-        await expect(page.locator(".category-mobile-back")).toHaveCount(0);
-        // The New menu is the page action at every width.
-        const newMenu = page.locator("[data-catalog-new-toggle]");
-        await expect(newMenu).toBeVisible();
-        await expect(
-          newMenu.evaluate((el) => el.getBoundingClientRect().height),
-        ).resolves.toBeGreaterThan(0);
-        // The actions control of every visible row keeps a real hit area.
-        const actions = longRow.locator(":scope > .catalog-tree-row [data-category-menu]");
-        const box = await actions.boundingBox();
-        expect(box, `at ${viewport}px the row actions must be laid out`).not.toBeNull();
-        expect(box?.width ?? 0, `at ${viewport}px the actions must not collapse`).toBeGreaterThan(
-          24,
-        );
-        expect(box?.height ?? 0, `at ${viewport}px the actions must not collapse`).toBeGreaterThan(
-          24,
-        );
-        // The workflow state and the open count render real text.
-        for (const [selector, label] of [
-          [".catalog-badge", "workflow state"],
-          [".catalog-node-meta", "row metadata"],
-        ] as const) {
-          const cell = longRow.locator(selector).first();
-          await expect(cell, `at ${viewport}px the ${label} must be visible`).toBeVisible();
-          expect((await cell.textContent())?.trim(), `at ${viewport}px ${label} text`).not.toBe("");
-        }
-        // The long name is readable: a real width, and never one character per line.
-        const nameBox = await shortRow.locator(".catalog-category-link").boundingBox();
-        expect(nameBox, `at ${viewport}px the category name must be laid out`).not.toBeNull();
-        // The tree sizes the name to its content instead of a fixed column, so the
-        // proof is that the text is not clipped: its scroll width fits its box.
-        const clipped = await shortRow.locator(".catalog-category-link").evaluate((el) => {
-          const style = getComputedStyle(el);
-          const hidden = style.overflow !== "visible" || style.textOverflow === "ellipsis";
-          return hidden ? el.scrollWidth > el.clientWidth + 1 : false;
-        });
-        expect(clipped, `at ${viewport}px the short category name must not be clipped`).toBe(false);
-        const longLines = await longRow.locator(".catalog-category-link").evaluate((el) => {
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          return Array.from(range.getClientRects()).filter((rect) => rect.width > 0).length;
-        });
-        expect(
-          longLines,
-          `at ${viewport}px the long name must wrap reasonably`,
-        ).toBeLessThanOrEqual(Math.ceil(longName.length / 8));
-        await assertNoHorizontalOverflow(page, viewport);
-      }
-
-      // Below the breakpoint the category row wraps its health to a second line:
-      // the name takes the whole first line and the state sits under it.
-      await page.setViewportSize({ width: 390, height: 800 });
-      await page.goto(base() + "/categories?view=structure");
-      const rowBox = await longRow.locator(":scope > .catalog-tree-row").boundingBox();
-      const nameBox = await longRow.locator(".catalog-category-link").boundingBox();
-      const badgeBox = await longRow.locator(".catalog-badge").boundingBox();
-      expect(
-        rowBox && nameBox && badgeBox,
-        "the mobile category row must be laid out",
-      ).toBeTruthy();
-      if (rowBox && nameBox && badgeBox) {
-        expect(nameBox.width, "at 390px the name takes the row's first line").toBeGreaterThan(
-          rowBox.width * 0.8,
-        );
-        expect(badgeBox.y, "at 390px the health wraps below the name").toBeGreaterThan(
-          nameBox.y + nameBox.height - 2,
-        );
-      }
-      // Indentation draws the depth instead of hiding it.
-      const departmentPadding = await page
-        .locator('[data-level="department"] > .catalog-tree-row')
-        .first()
-        .evaluate((el) => getComputedStyle(el).paddingLeft);
-      const categoryPadding = await longRow
-        .locator(":scope > .catalog-tree-row")
-        .evaluate((el) => getComputedStyle(el).paddingLeft);
-      expect(Number.parseFloat(categoryPadding)).toBeGreaterThan(
-        Number.parseFloat(departmentPadding),
-      );
-    } finally {
-      await page.setViewportSize({ width: 1280, height: 800 });
-      await page.goto(base() + "/categories?view=structure");
-      if (longCreated && (await catalogCategoryRow(page, longName).count()) > 0) {
-        const row = catalogCategoryRow(page, longName);
-        await row.locator(":scope > .catalog-tree-row [data-category-menu]").click();
-        await openRowMenu(row)
-          .getByRole("menuitem", { name: "Delete category", exact: true })
-          .click();
-        await page.locator("#category-delete-dialog [data-category-delete-confirm]").click();
-        await expect(catalogCategoryRow(page, longName)).toHaveCount(0);
-      }
-      if (emptyCreated && (await catalogNode(page, "desk", emptyName).count()) > 0) {
-        const row = catalogNode(page, "desk", emptyName);
-        await row.locator(":scope > .catalog-tree-row [data-category-menu]").click();
-        await openRowMenu(row).getByRole("menuitem", { name: "Delete desk", exact: true }).click();
-        await page.locator("#category-delete-dialog [data-category-delete-confirm]").click();
-        await expect(catalogNode(page, "desk", emptyName)).toHaveCount(0);
-      }
-    }
-  });
-
-  test("the lowest desk's overflow menu keeps Edit desk reachable inside the tree", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await loginAsSeeded(page);
-    await page.goto(base() + "/categories?view=structure");
-
-    // The last desk row in the tree is the one whose menu can be pushed off the
-    // bottom of the viewport; the menu must open UPWARD there and stay clickable.
-    const desks = page.locator('[data-level="desk"]');
-    const deskCount = await desks.count();
-    expect(deskCount).toBeGreaterThan(0);
-    const lowest = desks.nth(deskCount - 1);
-    await lowest.scrollIntoViewIfNeeded();
-    const menuButton = lowest.locator(":scope > .catalog-tree-row [data-category-menu]");
-    await menuButton.click();
-    const menu = lowest.locator(".category-overflow-menu:not([hidden])");
-    await expect(menu).toBeVisible();
-    const edit = menu.getByRole("menuitem", { name: "Edit desk", exact: true });
-    await expect(edit).toBeVisible();
-    const editBox = await edit.boundingBox();
-    expect(editBox, "the Edit desk item must be laid out").not.toBeNull();
-    if (editBox) {
-      expect(editBox.y).toBeGreaterThanOrEqual(0);
-      expect(editBox.y + editBox.height).toBeLessThanOrEqual(
-        await page.evaluate(() => window.innerHeight),
-      );
-      const hitTarget = await page.evaluate(
-        ({ x, y }) => {
-          const element = document.elementFromPoint(x, y);
-          return element?.closest('[role="menuitem"]')?.textContent?.trim() ?? null;
-        },
-        { x: editBox.x + editBox.width / 2, y: editBox.y + editBox.height / 2 },
-      );
-      expect(hitTarget).toBe("Edit desk");
     }
   });
 
@@ -1268,14 +540,14 @@ test.describe("Categories", () => {
 
     const row = catalogCategoryRow(page, catName);
     await expect(row).toHaveCount(1);
-    const drawer = await openCategoryDrawer(page, row, {
+    const drawer = await openCategoryDetails(page, row, {
       name: catName,
       description: "",
     });
     const description = drawer.getByLabel("Description", { exact: true });
     await expect(description).toHaveValue("");
     const renamed = catName + " Renamed";
-    await drawer.locator("#category-name").fill(renamed);
+    await drawer.getByLabel("Name", { exact: true }).fill(renamed);
     await description.fill("Temporary description");
     await drawer.getByRole("button", { name: /save changes/i }).click();
 
@@ -1283,7 +555,7 @@ test.describe("Categories", () => {
     await expect(catalogCategoryRow(page, renamed)).toBeVisible();
 
     const editedRow = catalogCategoryRow(page, renamed);
-    const clearedDrawer = await openCategoryDrawer(page, editedRow, {
+    const clearedDrawer = await openCategoryDetails(page, editedRow, {
       name: renamed,
       description: "Temporary description",
     });
@@ -1297,7 +569,9 @@ test.describe("Categories", () => {
     await delRow.getByRole("button", { name: /actions for/i }).click();
     await delRow.getByRole("menuitem", { name: /delete category/i }).click();
     await page.locator("#category-delete-dialog [data-category-delete-confirm]").click();
-    await expect(page.getByText(renamed)).toHaveCount(0);
+    await expect(catalogCategoryRow(page, renamed)).toHaveCount(0);
+    await page.reload();
+    await expect(catalogCategoryRow(page, renamed)).toHaveCount(0);
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -1328,9 +602,8 @@ test.describe("Categories", () => {
     const openEditDrawer = async () => {
       const row = catalogCategoryRow(page, name);
       await expect(row).toHaveCount(1);
-      await row.getByRole("button", { name: /actions for/i }).click();
-      await row.getByRole("menuitem", { name: "Edit category", exact: true }).click();
-      const drawer = page.getByRole("dialog", { name: /Edit category/i });
+      await openRowDetails(row);
+      const drawer = page.getByRole("region", { name, exact: true });
       await expect(drawer).toBeVisible();
       return drawer;
     };
@@ -1338,7 +611,7 @@ test.describe("Categories", () => {
     const drawer = await openEditDrawer();
     const keywords = drawer.getByLabel("Keywords for suggestions", { exact: true });
     await expect(keywords).toHaveValue("");
-    await expect(drawer.locator("#category-keywords-help")).toHaveText(
+    await expect(drawer.locator("[id^=details-keywords-help-]")).toHaveText(
       "Words people use for this category. Comma separated; accents and capitals do not matter.",
     );
     await keywords.fill("impresora, tóner");
@@ -1349,12 +622,14 @@ test.describe("Categories", () => {
     // Re-opening the drawer reads the stored words back, which is what an
     // administrator needs before editing them again. Closing it leaves the plain
     // catalog for the canonical screen assertion below.
+    await page.reload();
     const reopened = await openEditDrawer();
     await expect(reopened.getByLabel("Keywords for suggestions", { exact: true })).toHaveValue(
       "impresora, tóner",
     );
-    await reopened.getByRole("button", { name: "Close catalog details", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: /Edit category/i })).toHaveCount(0);
+    await reopened.getByRole("button", { name: "Discard", exact: true }).click();
+    await expect(reopened).toBeVisible();
+    await expect(reopened.getByRole("button", { name: "Save changes" })).toBeDisabled();
 
     await assertCanonicalScreen(page, {
       viewport: 1280,
@@ -1368,12 +643,52 @@ test.describe("Categories", () => {
     });
   });
 
+  test("category details rename refuses duplicates and keeps its folder", async ({ page }) => {
+    await loginAsSeeded(page);
+    const folderID = await createFolderViaUi(page, "Details rename folder");
+    await createCategoryInFolder(page, { name: "Details rename taken", folderID });
+    const id = await createCategoryInFolder(page, { name: "Details rename original", folderID });
+    const target = page.locator(
+      `[role="treeitem"][data-level="category"][data-catalog-id="${id}"]`,
+    );
+    await openRowDetails(target);
+    const panel = page.locator("[data-catalog-inspector] .catalog-details");
+    const name = panel.getByLabel("Name", { exact: true });
+    await expect(name).toHaveValue("Details rename original");
+    await name.fill("Details rename taken");
+    const rejected = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === `/categories/${id}/edit` && r.request().method() === "POST",
+    );
+    await panel.getByRole("button", { name: "Save changes" }).click();
+    expect((await rejected).status()).toBe(409);
+    await expect(name).toHaveAttribute("aria-invalid", "true");
+    await expect(panel.locator("[data-details-error]")).toHaveText(
+      "A category with that name already exists.",
+    );
+    await expect(name).toHaveValue("Details rename taken");
+    await expect(target).toHaveAttribute("data-name", "Details rename original");
+    await expect(target).toHaveAttribute("data-parent-id", folderID);
+    await name.fill("Details rename saved");
+    const saved = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === `/categories/${id}/edit` && r.request().method() === "POST",
+    );
+    await panel.getByRole("button", { name: "Save changes" }).click();
+    expect((await saved).status()).toBe(200);
+    await expect(target).toHaveAttribute("data-name", "Details rename saved");
+    await expect(target).toHaveAttribute("data-parent-id", folderID);
+    await page.reload();
+    await expect(target).toHaveAttribute("data-name", "Details rename saved");
+    await expect(target).toHaveAttribute("data-parent-id", folderID);
+  });
+
   test("category duplicate marks only name, keeps the draft, and saves after Stay", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
-    await page.goto(base() + "/categories/new?view=structure&department_id=1&desk_id=1");
+    await page.goto(base() + "/categories/new");
 
     const drawer = page.getByRole("dialog", { name: /New category/i });
     const name = drawer.getByLabel("Name", { exact: true });
@@ -1404,11 +719,7 @@ test.describe("Categories", () => {
 
     await expect(name).toHaveAttribute("aria-invalid", "true");
     await expect(name).toHaveAttribute("aria-describedby", "category-name-help");
-    await expect(drawer.getByLabel("Department", { exact: true })).not.toHaveAttribute(
-      "aria-invalid",
-      "true",
-    );
-    await expect(drawer.getByLabel("Desk", { exact: true })).not.toHaveAttribute(
+    await expect(drawer.getByLabel("Folder", { exact: true })).not.toHaveAttribute(
       "aria-invalid",
       "true",
     );
@@ -1439,7 +750,7 @@ test.describe("Categories", () => {
         method: "POST",
         expectedStatus: 200,
         hxTarget: "#categories-background",
-        expectedUrl: /\/categories\?department_id=1&desk_id=1&view=structure$/,
+        expectedUrl: /\/categories$/,
       },
     );
     await expect(drawer).toHaveCount(0);
@@ -1448,7 +759,7 @@ test.describe("Categories", () => {
 
   test("dirty category drawer backdrop Stay restores the prior form control", async ({ page }) => {
     await loginAsSeeded(page);
-    const drawerURL = base() + "/categories/new?view=structure&department_id=1&desk_id=1";
+    const drawerURL = base() + "/categories/new";
     await page.goto(drawerURL);
     const drawer = page.getByRole("dialog", { name: /New category/i });
     const name = drawer.getByLabel("Name", { exact: true });
@@ -1477,15 +788,13 @@ test.describe("Categories", () => {
   test("dirty category drawer keeps values and URL until discard", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
-    // The legacy selection URL still marks the department and desk rows. The desk
-    // row's own "Add category" shortcut is the creation entry that preselects the
-    // desk this journey asserts in the URL (issue #387, S5).
-    await page.goto(base() + "/categories?view=structure&department_id=1&desk_id=1");
-
+    // The seed has no folder since 0045 (S17), so the test brings its own.
+    const folderID = await createFolderViaUi(page, "Drawer " + Date.now().toString(36).slice(2, 7));
+    const listURL = new RegExp(`/categories\\?folder=${folderID}$`);
+    const drawerPath = new RegExp(`/categories/new\\?folder_id=${folderID}&folder=${folderID}$`);
+    await page.goto(base() + `/categories?folder=${folderID}`);
     const addCategory = async () => {
-      const desk = catalogNode(page, "desk", "General");
-      await rowMenu(desk).click();
-      await openRowMenu(desk).getByRole("menuitem", { name: "Add category", exact: true }).click();
+      await page.goto(base() + `/categories/new?folder_id=${folderID}&folder=${folderID}`);
     };
     await addCategory();
     const drawer = page.getByRole("dialog", { name: /New category/i });
@@ -1494,7 +803,7 @@ test.describe("Categories", () => {
       name: "Close catalog details",
       exact: true,
     });
-    await expect(page).toHaveURL(/\/categories\/new\?view=structure&department_id=1&desk_id=1$/);
+    await expect(page).toHaveURL(drawerPath);
     let drawerURL = page.url();
     await name.fill("Unsaved category");
 
@@ -1514,10 +823,10 @@ test.describe("Categories", () => {
     await name.fill("");
     await close.click();
     await expect(drawer).toHaveCount(0);
-    await expect(page).toHaveURL(/\/categories\?view=structure&department_id=1&desk_id=1$/);
+    await expect(page).toHaveURL(listURL);
     await addCategory();
     await expect(drawer).toBeVisible();
-    await expect(page).toHaveURL(/\/categories\/new\?view=structure&department_id=1&desk_id=1$/);
+    await expect(page).toHaveURL(drawerPath);
     drawerURL = page.url();
     await name.fill("Unsaved category");
     await page.goBack();
@@ -1525,8 +834,8 @@ test.describe("Categories", () => {
     await expect(page).toHaveURL(drawerURL);
     await confirmation.getByRole("button", { name: "Discard changes", exact: true }).click();
     await expect(drawer).toHaveCount(0);
-    await expect(page).toHaveURL(/\/categories\?view=structure&department_id=1&desk_id=1$/);
-    await expect(rowMenu(catalogNode(page, "desk", "General"))).toBeFocused();
+    await expect(page).toHaveURL(listURL);
+    await expect(page.locator('[role="tree"]')).toBeFocused();
   });
 
   test("clean category drawer close restores the launcher for Cancel, Escape and backdrop", async ({
@@ -1535,22 +844,18 @@ test.describe("Categories", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const name = "Focus restore " + Date.now().toString(36).slice(2, 8);
-    await createCategoryViaUi(page, name);
+    const deskID = await createDeskViaUi(page, name);
     const structureURL = page.url();
 
     for (const mechanism of ["Cancel", "Escape", "backdrop"] as const) {
       await page.goto(structureURL);
-      const row = catalogCategoryRow(page, name);
+      const row = page.locator(`tr[data-desk-id="${deskID}"]`);
       await expect(row).toHaveCount(1);
-      const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
-      const focusKey = await menu.getAttribute("data-focus-key");
+      const launcher = row.locator(".desks-launcher");
+      const focusKey = await launcher.getAttribute("data-focus-key");
       expect(focusKey).toBeTruthy();
-      await menu.click();
-      await row
-        .locator(".category-overflow-menu:not([hidden])")
-        .getByRole("menuitem", { name: "Edit category", exact: true })
-        .click();
-      const drawer = page.getByRole("dialog", { name: /Edit category/i });
+      await launcher.click();
+      const drawer = page.getByRole("dialog", { name: /Edit desk/i });
       await expect(drawer).toBeVisible();
 
       if (mechanism === "Cancel") {
@@ -1569,17 +874,13 @@ test.describe("Categories", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const name = "Focus backstop " + Date.now().toString(36).slice(2, 8);
-    await createCategoryViaUi(page, name);
+    const deskID = await createDeskViaUi(page, name);
     await page.goto(page.url());
-    const row = catalogCategoryRow(page, name);
-    const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
-    const focusKey = await menu.getAttribute("data-focus-key");
-    await menu.click();
-    await row
-      .locator(".category-overflow-menu:not([hidden])")
-      .getByRole("menuitem", { name: "Edit category", exact: true })
-      .click();
-    const drawer = page.getByRole("dialog", { name: /Edit category/i });
+    const row = page.locator(`tr[data-desk-id="${deskID}"]`);
+    const launcher = row.locator(".desks-launcher");
+    const focusKey = await launcher.getAttribute("data-focus-key");
+    await launcher.click();
+    const drawer = page.getByRole("dialog", { name: /Edit desk/i });
     await expect(drawer).toBeVisible();
 
     // Hold the close's delayed focus backstop so the test, not the machine's
@@ -1614,165 +915,61 @@ test.describe("Categories", () => {
   test("clean close restores focus for every drawer launcher", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
-
+    const deskID = await createDeskViaUi(page, "Focus launchers " + Date.now().toString(36));
+    const deskRow = () => page.locator(`tr[data-desk-id="${deskID}"]`);
     const openers = [
-      {
-        label: "New department",
-        url: "/categories?view=structure",
-        open: async () => {
-          await page.locator("[data-catalog-new-toggle]").click();
-          const launcher = page
-            .locator(
-              '.catalog-new .category-overflow-menu:not([hidden]) a[data-focus-key="new-department"]',
-            )
-            .first();
-          const focusKey = await launcher.getAttribute("data-focus-key");
-          await launcher.click();
-          return {
-            dialog: page.getByRole("dialog", { name: /New department/i }),
-            focusKey,
-            // The launcher lives inside the New menu, which closes with the click,
-            // so focus lands on the menu's own visible trigger.
-            focusTarget: "[data-catalog-new-toggle]",
-          };
-        },
+      async () => {
+        const launcher = deskRow().locator(".desks-launcher");
+        const focusKey = await launcher.getAttribute("data-focus-key");
+        await launcher.click();
+        return { dialog: page.getByRole("dialog", { name: /Edit desk/i }), focusKey };
       },
-      {
-        label: "Edit department",
-        url: "/categories?view=structure",
-        open: async () => {
-          const department = page.locator('[data-level="department"]').first();
-          const menu = rowMenu(department);
-          const focusKey = await menu.getAttribute("data-focus-key");
-          await menu.click();
-          await openRowMenu(department)
-            .getByRole("menuitem", { name: "Edit department", exact: true })
-            .click();
-          return { dialog: page.getByRole("dialog", { name: /Edit department/i }), focusKey };
-        },
-      },
-      {
-        label: "New desk",
-        url: "/categories?view=structure&department_id=1",
-        open: async () => {
-          await page.locator("[data-catalog-new-toggle]").click();
-          const launcher = page
-            .locator(
-              '.catalog-new .category-overflow-menu:not([hidden]) a[data-focus-key="new-desk"]',
-            )
-            .first();
-          const focusKey = await launcher.getAttribute("data-focus-key");
-          await launcher.click();
-          return {
-            dialog: page.getByRole("dialog", { name: /New desk/i }),
-            focusKey,
-            focusTarget: "[data-catalog-new-toggle]",
-          };
-        },
-      },
-      {
-        label: "Edit desk",
-        url: "/categories?view=structure&department_id=1",
-        open: async () => {
-          const desk = page.locator('[data-level="desk"]').first();
-          const menu = rowMenu(desk);
-          const focusKey = await menu.getAttribute("data-focus-key");
-          await menu.click();
-          await openRowMenu(desk).getByRole("menuitem", { name: "Edit desk", exact: true }).click();
-          return { dialog: page.getByRole("dialog", { name: /Edit desk/i }), focusKey };
-        },
-      },
-      {
-        label: "New category",
-        url: "/categories?view=structure&department_id=1&desk_id=1",
-        open: async () => {
-          await page.locator("[data-catalog-new-toggle]").click();
-          const launcher = page
-            .locator(
-              '.catalog-new .category-overflow-menu:not([hidden]) a[data-focus-key="new-category"]',
-            )
-            .first();
-          const focusKey = await launcher.getAttribute("data-focus-key");
-          await launcher.click();
-          return {
-            dialog: page.getByRole("dialog", { name: /New category/i }),
-            focusKey,
-            focusTarget: "[data-catalog-new-toggle]",
-          };
-        },
+      async () => {
+        const menu = deskRow().locator("[data-category-menu]");
+        const focusKey = await menu.getAttribute("data-focus-key");
+        await menu.click();
+        await openRowMenu(deskRow())
+          .getByRole("menuitem", { name: "Edit desk", exact: true })
+          .click();
+        return { dialog: page.getByRole("dialog", { name: /Edit desk/i }), focusKey };
       },
     ];
-
-    for (const opener of openers) {
-      await page.goto(base() + opener.url);
-      const { dialog, focusKey, focusTarget } = await opener.open();
+    for (const open of openers) {
+      await page.goto(base() + "/desks");
+      const { dialog, focusKey } = await open();
       await expect(dialog).toBeVisible();
       await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
       await expect(dialog).toHaveCount(0);
-      if (focusTarget) {
-        await expect(page.locator(focusTarget)).toBeFocused();
-      } else {
-        await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
-      }
+      await expect(page.locator(`[data-focus-key="${focusKey}"]`)).toBeFocused();
     }
   });
 
-  test("a vanished launcher falls back to a named control, never body", async ({ page }) => {
+  test("direct edit without a launcher falls back to the tree, never body", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const name = "Vanished trigger " + Date.now().toString(36).slice(2, 8);
-    await createCategoryViaUi(page, name);
-    const row = catalogCategoryRow(page, name);
-    await expect(row).toHaveCount(1);
-    const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
-    const focusKey = await menu.getAttribute("data-focus-key");
-    expect(focusKey).toBeTruthy();
-    await menu.click();
-    await row
-      .locator(".category-overflow-menu:not([hidden])")
-      .getByRole("menuitem", { name: "Edit category", exact: true })
-      .click();
+    const id = await createCategoryViaUi(page, name);
+    // Direct edit navigation is the supported entry with no opener to restore.
+    await page.goto(base() + `/categories/${id}/edit`);
     const drawer = page.getByRole("dialog", { name: /Edit category/i });
     await expect(drawer).toBeVisible();
-
-    // Simulate the background update that removes the trigger while the drawer is open.
-    await page.evaluate((key) => {
-      document.querySelector(`[data-focus-key="${key}"]`)?.remove();
-    }, focusKey);
 
     await drawer.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(drawer).toHaveCount(0);
-    await expect(page.locator("[data-catalog-new-toggle]")).toBeFocused();
+    await expect(page.locator('[role="tree"]')).toBeFocused();
     await expect(page.locator("body")).not.toBeFocused();
   });
 
-  test("a vanished launcher with no level control falls back to the named region", async ({
-    page,
-  }) => {
+  test("direct edit without a tree falls back to the named region", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
     const name = "Vanished region " + Date.now().toString(36).slice(2, 8);
-    await createCategoryViaUi(page, name);
-    const row = catalogCategoryRow(page, name);
-    await expect(row).toHaveCount(1);
-    const menu = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
-    const focusKey = await menu.getAttribute("data-focus-key");
-    expect(focusKey).toBeTruthy();
-    await menu.click();
-    await row
-      .locator(".category-overflow-menu:not([hidden])")
-      .getByRole("menuitem", { name: "Edit category", exact: true })
-      .click();
+    const id = await createCategoryViaUi(page, name);
+    await page.goto(base() + `/categories/${id}/edit`);
     const drawer = page.getByRole("dialog", { name: /Edit category/i });
     await expect(drawer).toBeVisible();
-
-    // Simulate a background update that removes BOTH the trigger and the New
-    // menu's own control. With tier one gone, only the tree's named region can
-    // receive focus -- never <body>.
-    await page.evaluate((key) => {
-      document.querySelector(`[data-focus-key="${key}"]`)?.remove();
-      document.querySelector("[data-catalog-new-toggle]")?.remove();
-    }, focusKey);
+    // No launcher exists for direct navigation; simulate a tree removed during the edit.
+    await page.locator('[role="tree"]').evaluate((tree) => tree.remove());
 
     await drawer.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(drawer).toHaveCount(0);
@@ -1782,53 +979,48 @@ test.describe("Categories", () => {
     await expect(page.locator("body")).not.toBeFocused();
   });
 
-  test("dirty department and desk drawers require an explicit discard", async ({ page }) => {
+  test("dirty folder and desk drawers require an explicit discard", async ({ page }) => {
     await loginAsSeeded(page);
-    await page.goto(base() + "/categories/departments/1/edit?view=structure");
+    await page.goto(base() + "/categories");
+    // The seed has no folder since 0045 (S17), so the test brings its own.
+    const folderID = await createFolderViaUi(page, "Drawer " + Date.now().toString(36).slice(2, 7));
+    await page.goto(base() + `/categories/folders/${folderID}/edit`);
 
-    const department = page.getByRole("dialog", { name: /Edit department/i });
-    const departmentName = department.getByLabel("Name", { exact: true });
-    await expect(department).toHaveAttribute("aria-describedby", "department-drawer-description");
-    await expect(department.locator("#department-drawer-description")).toHaveText(
-      "Use departments to group desks that support the same part of the organization.",
+    const folder = page.getByRole("dialog", { name: /Edit folder/i });
+    const folderName = folder.getByLabel("Name", { exact: true });
+    await expect(folder).toHaveAttribute("aria-describedby", "folder-drawer-description");
+    await expect(folder.locator("#folder-drawer-description")).toHaveText(
+      "Folders group categories for requesters. Nest them as deep as you need.",
     );
-    await expect(departmentName).toHaveAttribute("aria-describedby", "department-name-help");
-    await expect(department.locator("#department-name-help")).toHaveText(
-      "Department names must be globally unique.",
+    await expect(folderName).toHaveAttribute("aria-describedby", "folder-name-help");
+    await expect(folder.locator("#folder-name-help")).toHaveText(
+      "Names are unique inside the same folder.",
     );
-    await departmentName.fill("Unsaved department");
-    await department.getByRole("button", { name: "Close catalog details" }).click();
+    await folderName.fill("Unsaved folder");
+    await folder.getByRole("button", { name: "Close catalog details" }).click();
 
-    const confirmation = page.getByRole("dialog", {
-      name: "Leave without saving?",
-    });
+    const confirmation = page.getByRole("dialog", { name: "Leave without saving?" });
     await expect(confirmation).toBeVisible();
     await expect(confirmation.getByRole("button", { name: "Stay", exact: true })).toBeFocused();
     await confirmation.getByRole("button", { name: "Stay", exact: true }).click();
-    await expect(departmentName).toHaveValue("Unsaved department");
-    await expect(page).toHaveURL(/\/categories\/departments\/1\/edit/);
-    await department.getByRole("button", { name: "Close catalog details" }).click();
+    await expect(folderName).toHaveValue("Unsaved folder");
+    await expect(page).toHaveURL(new RegExp(`/categories/folders/${folderID}/edit`));
+    await folder.getByRole("button", { name: "Close catalog details" }).click();
     await confirmation.getByRole("button", { name: "Discard changes", exact: true }).click();
-    await expect(department).toHaveCount(0);
+    await expect(folder).toHaveCount(0);
 
-    await page.goto(base() + "/categories/desks/1/edit?view=structure&department_id=1&desk_id=1");
+    const deskID = await selectCatalogDesk(page, "General");
+    await page.goto(base() + `/desks/${deskID}/edit`);
     const desk = page.getByRole("dialog", { name: /Edit desk/i });
-    const description = desk.getByLabel("Description", { exact: true });
-    const deskName = desk.getByLabel("Name", { exact: true });
-    await expect(desk).toHaveAttribute("aria-describedby", "desk-drawer-description");
     await expect(desk.locator("#desk-drawer-description")).toHaveText(
-      "Use desks to group categories for the team that handles them.",
+      "A desk is a team: its members take the tickets of the categories that name it.",
     );
-    await expect(deskName).toHaveAttribute("aria-describedby", "desk-name-help");
-    await expect(desk.locator("#desk-name-help")).toHaveText("Desk names must be globally unique.");
-    await description.fill("Unsaved desk description");
+    await desk.getByLabel("Description", { exact: true }).fill("Unsaved desk description");
     await desk.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(confirmation).toBeVisible();
     await confirmation.getByRole("button", { name: "Discard changes", exact: true }).click();
     await expect(desk).toHaveCount(0);
-    await expect(page).toHaveURL(
-      /\/categories\?(?=.*view=structure)(?=.*department_id=1)(?=.*desk_id=1)/,
-    );
+    await expect(page).toHaveURL(/\/desks$/);
   });
 
   test("history restoration does not revive a stale category save confirmation", async ({
@@ -1837,15 +1029,14 @@ test.describe("Categories", () => {
     test.setTimeout(30_000);
     await page.setViewportSize({ width: 1280, height: 800 });
     await loginAsSeeded(page);
-    const listPath = "/categories?view=structure&department_id=1&desk_id=1";
+    // The seed has no folder since 0045 (S17), so the test brings its own.
+    const folderID = await createFolderViaUi(page, "Drawer " + Date.now().toString(36).slice(2, 7));
+    const listPath = `/categories?folder=${folderID}`;
     await page.goto(base() + listPath);
 
-    // The desk row's "Add category" shortcut opens the preselected drawer, which
-    // is the URL this journey reloads and restores (issue #387, S5).
+    // Navigate directly to the still-supported drawer URL.
     const addCategory = async () => {
-      const desk = catalogNode(page, "desk", "General");
-      await rowMenu(desk).click();
-      await openRowMenu(desk).getByRole("menuitem", { name: "Add category", exact: true }).click();
+      await page.goto(base() + `/categories/new?folder_id=${folderID}&folder=${folderID}`);
     };
     await addCategory();
     const drawer = page.getByRole("dialog", { name: /New category/i });
@@ -1860,16 +1051,16 @@ test.describe("Categories", () => {
         method: "POST",
         expectedStatus: 200,
         hxTarget: "#categories-background",
-        expectedUrl: /\/categories\?department_id=1&desk_id=1&view=structure$/,
+        expectedUrl: new RegExp(`/categories\\?folder=${folderID}$`),
       },
     );
     const feedback = page.locator("#save-feedback");
     await expect(feedback).toBeVisible();
 
-    await assertDrawerHtmxSwap(page, addCategory, {
-      endpoint: (url) => new URL(url).pathname === "/categories/new",
-      expectedUrl: /\/categories\/new\?view=structure&department_id=1&desk_id=1$/,
-    });
+    await addCategory();
+    await expect(page).toHaveURL(
+      new RegExp(`/categories/new\\?folder_id=${folderID}&folder=${folderID}$`),
+    );
     await expect(drawer).toBeVisible();
     await page.waitForTimeout(5_100);
 
@@ -2013,11 +1204,13 @@ test.describe("Categories", () => {
     const categoryName = "Feedback flow " + Date.now().toString(36).slice(2, 8);
     await createCategoryViaUi(page, categoryName);
     const category = catalogCategoryRow(page, categoryName);
-    const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
-    const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
-    if (!categoryID) throw new Error(`Could not resolve workflow category at ${page.url()}`);
+    const categoryID = await catalogNodeId(category, `category ${categoryName}`);
     const workflowPath = `/categories/${categoryID}/workflow`;
-    await page.goto(base() + workflowPath);
+    await openRowDetails(category);
+    await page
+      .getByRole("region", { name: categoryName, exact: true })
+      .getByRole("link", { name: "Configure workflow" })
+      .click();
 
     await page.locator(".workflow-add-step summary").first().click();
     const addResponse = await assertHtmxSwap(
@@ -2313,12 +1506,13 @@ test.describe("Categories", () => {
     // 2) open its workflow
     const catRow = catalogCategoryRow(page, catName);
     await expect(catRow).toHaveCount(1);
-    const editHref = await catRow.locator('a[href*="/edit"]').getAttribute("href");
-    const m = editHref?.match(/\/categories\/(\d+)\/edit/);
-    if (!m) throw new Error("cannot extract category id for " + catName);
-    const categoryId = m[1];
+    const categoryId = await catalogNodeId(catRow, `category ${catName}`);
     const workflowPath = `/categories/${categoryId}/workflow`;
-    await page.goto(base() + workflowPath);
+    await openRowDetails(catRow);
+    await page
+      .getByRole("region", { name: catName, exact: true })
+      .getByRole("link", { name: "Configure workflow" })
+      .click();
     await expect(page.locator("#workflow-builder")).toBeVisible({
       timeout: 10_000,
     });
@@ -2495,8 +1689,8 @@ test.describe("Categories", () => {
     });
     await expect(page.locator(".workflow-step-card")).toHaveCount(countAfterPublish);
     // Badge on /categories should now show Published for this category
-    await page.goto(base() + "/categories?view=structure");
-    await expect(catalogCategoryRow(page, catName).locator(".catalog-badge")).toContainText(
+    await page.goto(base() + "/categories");
+    await expect(catalogCategoryRow(page, catName).locator(".catalog-badge").first()).toContainText(
       /workflow v\d+/i,
     );
 
@@ -2690,20 +1884,8 @@ test.describe("Categories", () => {
     const catName = `Steps claim ${uniq}`;
 
     // A desk staffed with the reader: membership is what makes the claim theirs.
-    await page.goto(base() + "/categories?view=structure");
-    const firstDepartment = page.locator('[data-level="department"]').first();
-    await expect(firstDepartment).toHaveCount(1);
-    const departmentId = await catalogNodeId(firstDepartment, "the first department");
-    await page.goto(base() + "/categories/desks/new?view=structure&department_id=" + departmentId);
-    const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
-    await expect(deskDrawer).toBeVisible();
-    await deskDrawer.locator('select[name="department_id"]').selectOption(departmentId);
-    await deskDrawer.getByLabel("Name").fill(deskName);
-    await deskDrawer.getByRole("button", { name: /create desk/i }).click();
-    const deskRow = catalogNode(page, "desk", deskName);
-    await expect(deskRow, `the desk ${deskName} at ${page.url()}`).toHaveCount(1);
-    const deskId = await catalogNodeId(deskRow, `desk ${deskName}`);
-    await page.goto(base() + `/categories/desks/${deskId}/edit?view=structure`);
+    const deskId = await createDeskViaUi(page, deskName);
+    await page.goto(base() + `/desks/${deskId}/edit`);
     const editDrawer = page.getByRole("dialog", { name: /Edit desk/i });
     await expect(editDrawer).toBeVisible();
     await editDrawer.locator("select#desk-member").selectOption({ label: seededCredentials.name });
@@ -2713,14 +1895,7 @@ test.describe("Categories", () => {
     ).toHaveCount(1);
 
     // A category whose first step is the claim this desk answers.
-    await page.goto(
-      base() + `/categories/new?view=structure&department_id=${departmentId}&desk_id=${deskId}`,
-    );
-    await page.locator("#category-name").fill(catName);
-    await page.getByRole("button", { name: /create category/i }).click();
-    const catRow = catalogCategoryRow(page, catName);
-    await expect(catRow, `the category ${catName} at ${page.url()}`).toHaveCount(1);
-    const catId = await catalogNodeId(catRow, `category ${catName}`);
+    const catId = await createCategoryInFolder(page, { name: catName });
     await page.goto(base() + `/categories/${catId}/workflow`);
     await page.locator(".workflow-add-popover summary").click();
     await page.getByRole("button", { name: "Send to a desk" }).click();
@@ -2797,109 +1972,6 @@ test.describe("Categories", () => {
     });
   });
 
-  test("deleting a desk asks first, and a refused delete keeps the structure selection", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    const obs = collectObservability(page);
-    await loginAsSeeded(page);
-    await page.goto(base() + "/categories?view=structure&department_id=unassigned");
-
-    // The seeded legacy desk still hosts a category, so the store refuses its
-    // delete: the fixture the audit's reproduction step names. The desk is
-    // resolved by its position under the Unassigned group, never by a name
-    // another journey in this file may have renamed.
-    const unassigned = catalogNode(page, "department", "Unassigned");
-    const deskRow = unassigned.locator('[data-level="desk"]').first();
-    await expect(deskRow, `the unassigned desk at ${page.url()}`).toHaveCount(1);
-    const deskName = (await deskRow.locator(".catalog-node-name").first().innerText()).trim();
-    const deskID = await catalogNodeId(deskRow, "the unassigned desk");
-    // Selecting it is a legacy link, not a drill-down: the tree never hides a
-    // level (issue #387, S6).
-    await page.goto(
-      base() + `/categories?view=structure&department_id=unassigned&desk_id=${deskID}`,
-    );
-    await expect(deskRow).toHaveAttribute("data-current", "true");
-    const structureURL = page.url();
-    const dialog = page.locator("#category-delete-dialog");
-
-    await rowMenu(deskRow).click();
-    await openRowMenu(deskRow).getByRole("menuitem", { name: "Delete desk", exact: true }).click();
-
-    // The confirmation names the row, focuses the safe choice, and the
-    // destructive action is the only red control in the dialog.
-    await expect(dialog).toBeVisible();
-    await expect(dialog.locator("#category-delete-title")).toHaveText(
-      `Delete the desk \u201c${deskName}\u201d?`,
-    );
-    await expect(dialog.locator("[data-category-delete-cancel]")).toBeFocused();
-    await expect(dialog.locator("[data-category-delete-confirm]")).toHaveCSS(
-      "background-color",
-      "rgb(180, 35, 24)",
-    );
-    await expect(dialog.locator("[data-category-delete-cancel]")).not.toHaveCSS(
-      "background-color",
-      "rgb(180, 35, 24)",
-    );
-
-    // Cancel is the safe exit: nothing is deleted, the menu the dialog
-    // replaced is closed, and focus is back on the trigger that opened it.
-    await dialog.locator("[data-category-delete-cancel]").click();
-    await expect(dialog).not.toBeVisible();
-    await expect(deskRow).toHaveCount(1);
-    await expect(page).toHaveURL(structureURL);
-    await expect(rowMenu(deskRow)).toBeFocused();
-
-    // Confirming a delete the store refuses keeps the structure view, its
-    // department and desk selection, and the URL, and reports the error there.
-    const navigations: string[] = [];
-    const navigationHandler = (request: Request) => {
-      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
-        navigations.push(request.url());
-      }
-    };
-    page.on("request", navigationHandler);
-    try {
-      // Cancelling closed the menu, so the second attempt starts from the
-      // trigger again.
-      await rowMenu(deskRow).click();
-      const deleteItem = openRowMenu(deskRow).getByRole("menuitem", {
-        name: "Delete desk",
-        exact: true,
-      });
-      await expect(deleteItem).toBeVisible();
-      const refusal = page.waitForResponse(
-        (response) =>
-          response.request().headers()["hx-request"] === "true" &&
-          response.request().method() === "POST" &&
-          response.url().endsWith(`/categories/desks/${deskID}/delete`),
-      );
-      await deleteItem.click();
-      await dialog.locator("[data-category-delete-confirm]").click();
-      const response = await refusal;
-      expect(response.status()).toBe(409);
-      expect(response.headers()["hx-retarget"]).toBe("#categories-background");
-      expect(response.headers()["hx-reswap"]).toBe("outerHTML");
-      await expect(page.locator("#categories-background .error-banner")).toHaveText(
-        "desk is referenced and cannot be deleted",
-      );
-      await expect(page).toHaveURL(structureURL);
-      const refusedRow = catalogNode(page, "desk", deskName);
-      await expect(refusedRow).toHaveCount(1);
-      await expect(refusedRow).toHaveAttribute("data-current", "true");
-      await expect(refusedRow.locator(":scope > .catalog-tree-row")).toHaveAttribute(
-        "aria-current",
-        "true",
-      );
-    } finally {
-      page.off("request", navigationHandler);
-    }
-    expect(navigations, `a refused delete must not navigate: ${navigations.join("; ")}`).toEqual(
-      [],
-    );
-    expect(obs.pageErrors).toEqual([]);
-  });
-
   test("the delete confirmation cancels on Escape and returns focus to its trigger", async ({
     page,
   }) => {
@@ -2949,10 +2021,11 @@ test.describe("Categories", () => {
       const categoryName = "Popover " + Date.now().toString(36).slice(2, 8);
       await createCategoryViaUi(page, categoryName);
       const category = catalogCategoryRow(page, categoryName);
-      const editHref = await category.locator('a[href*="/edit"]').getAttribute("href");
-      const categoryID = editHref?.match(/\/categories\/(\d+)\/edit/)?.[1];
-      if (!categoryID) throw new Error(`Could not resolve workflow category at ${page.url()}`);
-      await page.goto(base() + `/categories/${categoryID}/workflow`);
+      await openRowDetails(category);
+      await page
+        .getByRole("region", { name: categoryName, exact: true })
+        .getByRole("link", { name: "Configure workflow" })
+        .click();
       await expect(page.locator("#workflow-builder")).toBeVisible({ timeout: 10_000 });
     }
 
@@ -3179,14 +2252,43 @@ test.describe("Categories", () => {
       select.value = "checkbox";
     });
     await page.locator('input[name="step_0_field_0_required"]').check();
+    await expect(page.locator('select[name="step_0_field_0_kind"]')).toHaveValue("checkbox");
+    await expect(page.locator('input[name="step_0_field_0_required"]')).toBeChecked();
+    // Feedback may already say Saved while this request is still pending.
+    const nextSave = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" &&
+        new URL(request.url()).pathname === `/categories/${categoryId}/workflow` &&
+        new URLSearchParams(request.postData() || "").get("action") === "save",
+    );
     await page.locator('.page-actions button[name="action"][value="save"]').click();
+    const saveRequest = await nextSave;
+    const response = await saveRequest.response();
+    expect(response?.status()).toBe(200);
+    expect(await response?.finished()).toBeNull();
+    const fields = new URLSearchParams(saveRequest.postData() || "");
+    expect({
+      kind: fields.get("step_0_field_0_kind"),
+      required: fields.get("step_0_field_0_required"),
+    }).toEqual({ kind: "checkbox", required: "on" });
     await expect(page.locator("#save-feedback .save-feedback-message")).toHaveText("Saved");
 
     // Reload and re-select the step: the persisted draft renders "Must be
     // ticked" (not the bare "Required") and keeps the control ticked.
     await page.reload();
     await expect(page.locator("#workflow-builder")).toBeVisible();
+    await expect(page.locator('select[name="step_0_field_0_kind"]')).toHaveValue("checkbox");
+    const selected = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === `/categories/${categoryId}/workflow` &&
+        (new URLSearchParams(response.request().postData() || "").get("action") ||
+          new URL(response.url()).searchParams.get("action")) === "select_step",
+    );
     await page.locator(".workflow-step-card .workflow-step-card-link").first().click();
+    const selection = await selected;
+    expect(selection.status()).toBe(200);
+    expect(await selection.finished()).toBeNull();
     await expect(page.getByLabel("Must be ticked")).toBeVisible();
     await expect(page.locator('input[name="step_0_field_0_required"]')).toBeChecked();
   });
@@ -4008,13 +3110,13 @@ test.describe("Categories", () => {
     // results list with the filtered tree).
     const categoryName = "General";
     const search = page.getByRole("searchbox", {
-      name: "Search departments, desks, or categories",
+      name: "Search folders and categories",
     });
     await search.fill(categoryName);
     await search.press("Enter");
     await expect(catalogCategoryRow(page, categoryName)).toHaveCount(1);
 
-    const rowSelector = '[data-level="category"]';
+    const rowSelector = "the category row";
     const categoryRow = catalogCategoryRow(page, categoryName);
     if ((await categoryRow.count()) !== 1) {
       throw new Error(
@@ -4024,11 +3126,12 @@ test.describe("Categories", () => {
 
     const categoryId = await catalogNodeId(categoryRow, `category ${categoryName}`);
 
-    // The overflow menu's Configure SLA item must point at THIS category.
+    // The details popover's Configure SLA link points at THIS category.
     const slaPath = `/categories/${categoryId}/sla`;
-    await rowMenu(categoryRow).click();
-    const menu = openRowMenu(categoryRow);
-    const configureSla = menu.getByRole("menuitem", { name: "Configure SLA", exact: true });
+    await openRowDetails(categoryRow);
+    const configureSla = page
+      .getByRole("region", { name: categoryName, exact: true })
+      .getByRole("link", { name: "Configure SLA", exact: true });
     await expect(configureSla).toHaveAttribute("href", slaPath);
     await configureSla.click();
 
@@ -4197,17 +3300,21 @@ test.describe("Categories", () => {
   // menus, Escape only worked with a drawer present, and Arrow Down from the
   // trigger did nothing.
   test.describe("overflow menu consistency", () => {
-    const structureURL = "/categories?view=structure&department_id=1&desk_id=1";
+    const structureURL = "/categories";
 
-    // Every level owns a row menu in the one tree: department, desk, category.
+    // Every tree row owns a menu: the folder row on top,
+    // then the category rows. The keys keep the walk upward: "folder" is the
+    // top folder row, "desk" the first category row, "category" the last one.
     const menuTargets = (page: Page) => ({
-      department: page
-        .locator('[data-level="department"] > .catalog-tree-row [data-category-menu]')
+      folder: page
+        .locator('li[data-level="folder"] > .catalog-tree-row [data-category-menu]')
         .first(),
-      desk: page.locator('[data-level="desk"] > .catalog-tree-row [data-category-menu]').first(),
+      desk: page
+        .locator('li[data-level="category"] > .catalog-tree-row [data-category-menu]')
+        .first(),
       category: page
-        .locator('[data-level="category"] > .catalog-tree-row [data-category-menu]')
-        .first(),
+        .locator('li[data-level="category"] > .catalog-tree-row [data-category-menu]')
+        .last(),
     });
 
     const menuOf = async (page: Page, trigger: Locator) => {
@@ -4216,21 +3323,21 @@ test.describe("Categories", () => {
       return page.locator(`#${id}`);
     };
 
-    test("a menu opens alone, an action closes it, and the drawer lifecycle clears it", async ({
-      page,
-    }) => {
+    test("a menu opens alone and Cut closes it on every row", async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
       await loginAsSeeded(page);
+      // The seed has no folder, so the walk brings its own.
+      await createFolderViaUi(page, "Menus " + Date.now().toString(36).slice(2, 7));
       await page.goto(base() + structureURL);
 
       const targets = menuTargets(page);
-      const departmentMenu = await menuOf(page, targets.department);
+      const folderMenu = await menuOf(page, targets.folder);
       const deskMenu = await menuOf(page, targets.desk);
       const categoryMenu = await menuOf(page, targets.category);
 
       // Opening one menu dismisses the previously open one: never two at once.
       // The tree stacks its rows, so the order walks UPWARD (category, desk,
-      // department): a menu always opens below its trigger, and a trigger the
+      // folder): a menu always opens below its trigger, and a trigger the
       // previous menu covers could not be clicked.
       await targets.category.click();
       await expect(categoryMenu).toBeVisible();
@@ -4239,8 +3346,8 @@ test.describe("Categories", () => {
       await expect(deskMenu).toBeVisible();
       await expect(categoryMenu).toBeHidden();
       await expect(targets.category).toHaveAttribute("aria-expanded", "false");
-      await targets.department.click();
-      await expect(departmentMenu).toBeVisible();
+      await targets.folder.click();
+      await expect(folderMenu).toBeVisible();
       await expect(deskMenu).toBeHidden();
       await expect(targets.desk).toHaveAttribute("aria-expanded", "false");
 
@@ -4249,25 +3356,19 @@ test.describe("Categories", () => {
       await expect(categoryMenu).toBeHidden();
       await expect(targets.category).toHaveAttribute("aria-expanded", "false");
 
-      // Choosing an action closes its own menu on all three entities, and the
-      // drawer close path leaves no menu behind.
-      for (const entity of [
-        { trigger: targets.department, item: "Edit department", dialog: /Edit department/i },
-        { trigger: targets.desk, item: "Edit desk", dialog: /Edit desk/i },
-        { trigger: targets.category, item: "Edit category", dialog: /Edit category/i },
-      ]) {
-        const menu = await menuOf(page, entity.trigger);
-        await entity.trigger.click();
-        await expect(menu).toBeVisible();
-        await menu.getByRole("menuitem", { name: entity.item, exact: true }).click();
-        const drawer = page.getByRole("dialog", { name: entity.dialog });
-        await expect(drawer).toBeVisible();
+      // Cut is a retained action for every row; it closes the menu and selects the row.
+      for (const trigger of Object.values(targets)) {
+        const menu = await menuOf(page, trigger);
+        const row = trigger.locator('xpath=ancestor::li[@role="treeitem"][1]');
+        await trigger.click();
+        await expect(menu.getByRole("menuitem", { name: "Move…", exact: true })).toHaveCount(0);
+        await menu.getByRole("menuitem", { name: "Cut", exact: true }).click();
         await expect(menu).toBeHidden();
-        await expect(entity.trigger).toHaveAttribute("aria-expanded", "false");
-        await drawer.getByRole("button", { name: "Cancel", exact: true }).click();
-        await expect(drawer).toHaveCount(0);
-        await expect(page.locator(".category-overflow-menu:not([hidden])")).toHaveCount(0);
-        await expect(entity.trigger).toBeFocused();
+        await expect(trigger).toHaveAttribute("aria-expanded", "false");
+        await expect(row).toHaveClass(/catalog-cut/);
+        await expect(row).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(row).not.toHaveClass(/catalog-cut/);
       }
     });
 
@@ -4276,6 +3377,7 @@ test.describe("Categories", () => {
     }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
       await loginAsSeeded(page);
+      await createFolderViaUi(page, "Keyboard menus " + Date.now().toString(36).slice(2, 7));
       await page.goto(base() + structureURL);
 
       const targets = menuTargets(page);
@@ -4316,35 +3418,21 @@ test.describe("Categories", () => {
 
       const { category } = menuTargets(page);
       const menu = await menuOf(page, category);
-      const drawer = page.getByRole("dialog", { name: /Edit category/i });
-      const openFirst = async () => {
+      const row = category.locator('xpath=ancestor::li[@role="treeitem"][1]');
+      for (const key of [" ", "Enter"]) {
         await category.focus();
         await page.keyboard.press("ArrowDown");
-        await expect(menu).toBeVisible();
-        await expect(menu.getByRole("menuitem").first()).toBeFocused();
-      };
-      // The drawer close path restores focus via requestAnimationFrame and again
-      // on a 100ms backstop; let both settle before driving the trigger again.
-      const closeDrawer = async () => {
-        await drawer.getByRole("button", { name: "Cancel", exact: true }).click();
-        await expect(drawer).toHaveCount(0);
-        await page.waitForTimeout(150);
-      };
-
-      // Space activates a role=menuitem link, then the menu and the action's
-      // own drawer lifecycle leave nothing open.
-      await openFirst();
-      await page.keyboard.press(" ");
-      await expect(drawer).toBeVisible();
-      await expect(menu).toBeHidden();
-      await closeDrawer();
-
-      // Enter keeps the native anchor activation the role promises.
-      await openFirst();
-      await page.keyboard.press("Enter");
-      await expect(drawer).toBeVisible();
-      await expect(menu).toBeHidden();
-      await closeDrawer();
+        const cut = menu.getByRole("menuitem", { name: "Cut", exact: true });
+        await cut.focus();
+        await expect(cut).toBeFocused();
+        await page.keyboard.press(key);
+        await expect(menu).toBeHidden();
+        await expect(category).toHaveAttribute("aria-expanded", "false");
+        await expect(row).toHaveClass(/catalog-cut/);
+        await expect(row).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(row).not.toHaveClass(/catalog-cut/);
+      }
     });
   });
 });

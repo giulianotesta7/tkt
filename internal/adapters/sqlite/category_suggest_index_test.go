@@ -26,55 +26,24 @@ var suggestionSeedTime = time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
 // against and returns it with each category's id by name.
 func newSuggestionCatalog(t *testing.T) (*Store, map[string]int64) {
 	t.Helper()
-	ctx := context.Background()
 	s := newTestDB(t)
-	catalog, desks, categories := s.CatalogStore(), s.DeskStore(), s.CategoryStore()
-
-	department := func(name string) int64 {
-		t.Helper()
-		d := &domain.Department{Name: name, CreatedAt: suggestionSeedTime}
-		if err := catalog.CreateDepartment(ctx, d); err != nil {
-			t.Fatalf("create department %q: %v", name, err)
-		}
-		return d.ID
-	}
-	desk := func(name string, departmentID int64) int64 {
-		t.Helper()
-		d := &domain.Desk{Name: name, CreatedAt: suggestionSeedTime, DepartmentID: &departmentID}
-		if err := desks.Create(ctx, d); err != nil {
-			t.Fatalf("create desk %q: %v", name, err)
-		}
-		return d.ID
-	}
-
-	technology := department("Tecnología")
-	people := department("Personas")
-	finance := department("Finanzas")
-	serviceDesk := desk("Service desk", technology)
-	itSupport := desk("IT support", technology)
-	peopleDesk := desk("People", people)
-	financeDesk := desk("Finance", finance)
-
 	rows := []struct {
 		name, description, keywords string
-		deskID                      int64
 	}{
-		{"Printers", "Problems with the office printer: paper jams, toner and drivers", "impresora, toner, imprimir, printer", serviceDesk},
-		{"Network & Wi-Fi", "Wifi and internet access for the office", "wifi, red, internet, conexión, vpn", itSupport},
-		{"Laptops & computers", "Laptop requests, hardware repair and replacements", "laptop, computadora, notebook, hardware", serviceDesk},
-		{"Payroll", "Payroll and salary questions", "nómina, sueldo, salario, payroll", peopleDesk},
-		{"Vacation & leave", "Vacation days, sick leave and time off requests", "vacaciones, licencia, permiso, ausencia", peopleDesk},
-		{"Expenses & reimbursement", "Travel expenses and reimbursement of receipts", "gastos, reintegro, viáticos", financeDesk},
-		{"Invoices & billing", "Invoices from providers and billing questions", "factura, facturación, cobro", financeDesk},
-		{"Access & permissions", "Access to systems and permission changes", "acceso, permisos, contraseña", itSupport},
-		{"Onboarding", "New hire onboarding and first day setup", "ingreso, alta, incorporación", peopleDesk},
+		{"Printers", "Problems with the office printer: paper jams, toner and drivers", "impresora, toner, imprimir, printer"},
+		{"Network & Wi-Fi", "Wifi and internet access for the office", "wifi, red, internet, conexión, vpn"},
+		{"Laptops & computers", "Laptop requests, hardware repair and replacements", "laptop, computadora, notebook, hardware"},
+		{"Payroll", "Payroll and salary questions", "nómina, sueldo, salario, payroll"},
+		{"Vacation & leave", "Vacation days, sick leave and time off requests", "vacaciones, licencia, permiso, ausencia"},
+		{"Expenses & reimbursement", "Travel expenses and reimbursement of receipts", "gastos, reintegro, viáticos"},
+		{"Invoices & billing", "Invoices from providers and billing questions", "factura, facturación, cobro"},
+		{"Access & permissions", "Access to systems and permission changes", "acceso, permisos, contraseña"},
+		{"Onboarding", "New hire onboarding and first day setup", "ingreso, alta, incorporación"},
 	}
 	ids := make(map[string]int64, len(rows))
 	for _, row := range rows {
-		category := &domain.Category{Name: row.name, Description: row.description, Keywords: row.keywords, DeskID: row.deskID, CreatedAt: suggestionSeedTime}
-		if err := categories.Create(ctx, category); err != nil {
-			t.Fatalf("create category %q: %v", row.name, err)
-		}
+		category := &domain.Category{Name: row.name, Description: row.description, Keywords: row.keywords, CreatedAt: suggestionSeedTime}
+		createCategory(t, s, category)
 		ids[row.name] = category.ID
 	}
 	return s, ids
@@ -185,23 +154,11 @@ func TestCategorySuggestionIndexSuggestsNothingForUnrelatedText(t *testing.T) {
 // refusal to suggest on a non-discriminating word: a term present in every
 // category has no IDF left, scores nothing, and the local engine keeps quiet.
 func TestCategorySuggestionIndexIgnoresAWordEveryCategoryShares(t *testing.T) {
-	ctx := context.Background()
 	s := newTestDB(t)
-	catalog, deskStore, categories := s.CatalogStore(), s.DeskStore(), s.CategoryStore()
-	department := &domain.Department{Name: "General support", CreatedAt: suggestionSeedTime}
-	if err := catalog.CreateDepartment(ctx, department); err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk := &domain.Desk{Name: "Helpdesk", CreatedAt: suggestionSeedTime, DepartmentID: &department.ID}
-	if err := deskStore.Create(ctx, desk); err != nil {
-		t.Fatalf("create desk: %v", err)
-	}
 	var allowed []int64
 	for _, name := range []string{"Printers", "Payroll", "Onboarding"} {
-		category := &domain.Category{Name: name, Description: "soporte general para el equipo", Keywords: "soporte, ayuda", DeskID: desk.ID, CreatedAt: suggestionSeedTime}
-		if err := categories.Create(ctx, category); err != nil {
-			t.Fatalf("create category %q: %v", name, err)
-		}
+		category := &domain.Category{Name: name, Description: "soporte general para el equipo", Keywords: "soporte, ayuda", CreatedAt: suggestionSeedTime}
+		createCategory(t, s, category)
 		allowed = append(allowed, category.ID)
 	}
 

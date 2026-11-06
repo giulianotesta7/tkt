@@ -61,8 +61,7 @@ type apiRequesterForm struct {
 type apiCategory struct {
 	ID            int64             `json:"id"`
 	Name          string            `json:"name"`
-	Desk          string            `json:"desk"`
-	Department    string            `json:"department"`
+	FolderPath    []string          `json:"folder_path"`
 	RequesterForm *apiRequesterForm `json:"requester_form"`
 }
 
@@ -99,7 +98,7 @@ func (h *APIHandlers) listCategories(w http.ResponseWriter, r *http.Request) {
 		if published == nil {
 			continue
 		}
-		item := apiCategory{ID: c.ID, Name: c.Name, Desk: c.DeskName, Department: c.DepartmentName}
+		item := apiCategory{ID: c.ID, Name: c.Name, FolderPath: append([]string{}, c.FolderPath...)}
 		for index, step := range published.Workflow {
 			if step.Type != domain.StepForm || step.Form == nil || step.Form.Actor != domain.FormActorRequester {
 				continue

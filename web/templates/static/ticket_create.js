@@ -17,15 +17,16 @@
  *     native field is still the single source of the submission and no request
  *     is ever issued by a change (#232's contract, kept by #391).
  *
- *  2. The two-step catalog's search box filters the cards live, by the same
- *     rule the server applies for `?q` (category, desk, or department name),
- *     hiding the departments left with no match. With no script the server has
- *     already rendered exactly that filter.
+ *  2. The two-step catalog's search box flattens the folder tree live (issue
+ *     #484): while it holds text the folder level hides and the list of every
+ *     category is filtered by the rule the server applies for `?q` (name,
+ *     description, folder path or desk). With no script the server has already
+ *     rendered exactly that filter.
  *
  *  3. Category suggestions (issue #416, S2) are shortcuts for the pickers that
  *     are already here: a suggested chip writes its category into the form's own
  *     select, and a suggested tile is an ordinary link into the same form. A
- *     suggested category is offered once, so its department card stays hidden
+ *     suggested category is offered once, so its search result stays hidden
  *     while the Suggested group names it.
  */
 (() => {
@@ -233,6 +234,8 @@
   const closePicker = (picker, restoreFocus) => {
     if (!picker || picker.popover.dataset.open !== "1") return;
     delete picker.popover.dataset.open;
+    picker.stopPosition?.();
+    picker.stopPosition = null;
     picker.button.setAttribute("aria-expanded", "false");
     if (restoreFocus) picker.button.focus();
     return picker;
@@ -253,6 +256,7 @@
     closeAll(false);
     picker.popover.dataset.open = "1";
     picker.button.setAttribute("aria-expanded", "true");
+    picker.stopPosition = window.tktPositionMenu(picker.button, picker.popover);
     if (picker.search) {
       picker.search.value = "";
       filterPicker(picker);
@@ -264,10 +268,9 @@
     if (selected) selected.focus();
   };
 
-  // The filter is the server's own rule (catalogMatches): a category matches
-  // when the query appears in its name, in the desk that holds it, or in the
-  // department above that desk — which is why a group whose heading matches
-  // keeps ALL of its options, exactly as the service catalog does.
+  // A category matches when the query appears in its name or in the folder
+  // path its group is labelled with (issue #484) — which is why a group whose
+  // heading matches keeps ALL of its options, as the service catalog does.
   const filterPicker = (picker) => {
     const query = picker.search ? picker.search.value.trim().toLowerCase() : "";
     let visible = 0;
@@ -406,7 +409,7 @@
   for (const wrapper of document.querySelectorAll("[data-create-picker]")) enhance(wrapper);
 
   // The category a catalog card opens, read from the link the card already is:
-  // the Suggested group and the departments have to agree on one identity without
+  // the Suggested group and the catalog have to agree on one identity without
   // the markup carrying a second attribute for it.
   const catalogCardID = (card) => {
     if (!(card instanceof HTMLAnchorElement)) return "";
@@ -425,21 +428,19 @@
   const catalogSearch = document.querySelector("[data-create-catalog-search]");
 
   if (catalog && catalogSearch) {
-    const groups = Array.from(catalog.querySelectorAll(".create-catalog-department-group"));
-    const sections = groups.map((group) => ({
-      group,
-      name: (group.querySelector(".create-catalog-department") || group).textContent.toLowerCase(),
-      cards: Array.from(group.querySelectorAll(".create-card")).map((card) => ({
-        card,
-        id: catalogCardID(card),
-        name: (
-          card.querySelector(".create-card-name").textContent +
-          " " +
-          card.querySelector(".create-card-desk").textContent
-        ).toLowerCase(),
-      })),
-    }));
-    const empty = document.querySelector(".create-catalog-empty");
+    // Issue #484: the catalog shows one folder level; a search flattens the tree
+    // into the list of every category with its folder path, so while the box
+    // holds text the level hides and the list is filtered instead.
+    const level = catalog.querySelector("[data-catalog-level]");
+    const flat = catalog.querySelector("[data-catalog-flat]");
+    const results = flat
+      ? Array.from(flat.querySelectorAll(".create-card")).map((card) => ({
+          card,
+          id: catalogCardID(card),
+          text: (card.getAttribute("data-catalog-text") || card.textContent).toLowerCase(),
+        }))
+      : [];
+    const empty = document.querySelector("[data-catalog-no-match]");
 
     // The categories the Suggested group already names (issue #416, S2). It is
     // read from the DOM on every pass because the search refreshes the group
@@ -454,38 +455,27 @@
 
     const filter = () => {
       // The rule is the server's own (catalogMatches): a card matches when the
-      // query appears in the category, its desk, or its department name.
+      // query appears in its name, description, folder path or desk.
       const query = catalogSearch.value.trim().toLowerCase();
       const suggested = suggestedIDs();
-      let named = 0;
-      for (const section of sections) {
-        const sectionHit = query === "" || section.name.includes(query);
-        for (const card of section.cards) {
-          card.hit = !suggested.has(card.id) && (sectionHit || card.name.includes(query));
-          if (card.hit) named += 1;
-        }
+      let matches = 0;
+      for (const result of results) {
+        const visible = query !== "" && !suggested.has(result.id) && result.text.includes(query);
+        result.card.hidden = !visible;
+        if (visible) matches += 1;
       }
       // A description that names no card still leaves a usable catalog under the
-      // Suggested group: the departments are the manual way to choose, so they
-      // stay whole instead of collapsing into the no-match message (S3).
-      const keepAll = suggested.size > 0 && named === 0;
-      let matches = 0;
-      for (const section of sections) {
-        let shown = 0;
-        for (const card of section.cards) {
-          const visible = !suggested.has(card.id) && (keepAll || card.hit);
-          card.card.hidden = !visible;
-          if (visible) shown += 1;
-        }
-        section.group.hidden = shown === 0;
-        matches += shown;
-      }
-      if (empty) empty.hidden = matches !== 0 || query === "";
+      // Suggested group: the folders are the manual way to choose, so the level
+      // stays instead of collapsing into the no-match message (S3).
+      const searching = query !== "" && !(suggested.size > 0 && matches === 0);
+      if (level) level.hidden = searching;
+      if (flat) flat.hidden = !searching;
+      if (empty) empty.hidden = !searching || matches !== 0;
     };
 
     catalogSearch.addEventListener("input", filter);
     // A swap replaces the Suggested group, so the duplicates it creates move and
-    // the filter has to run again: the group and the departments are one view.
+    // the filter has to run again: the group and the catalog are one view.
     document.body.addEventListener("htmx:afterSwap", (event) => {
       if (event.target instanceof Element && event.target.id === "create-catalog-suggestions") {
         filter();

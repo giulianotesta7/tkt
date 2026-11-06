@@ -179,7 +179,7 @@ func TestCategoryManagementRequiresAdminOrRoot(t *testing.T) {
 func TestCategoryCreateStoresSuggestionKeywords(t *testing.T) {
 	svc, categories, _ := newCategoryService()
 
-	created, err := svc.CreateWithKeywords(context.Background(), "Printers", "Printer problems", " impresora, tóner ", 0)
+	created, err := svc.CreateWithKeywords(context.Background(), "Printers", "Printer problems", " impresora, tóner ")
 	if err != nil {
 		t.Fatalf("CreateWithKeywords: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestCategoryCreateStoresSuggestionKeywords(t *testing.T) {
 func TestCategoryCreateWithoutKeywordsStoresEmpty(t *testing.T) {
 	svc, categories, _ := newCategoryService()
 
-	created, err := svc.CreateWithDescription(context.Background(), "Printers", "Printer problems", 0)
+	created, err := svc.CreateWithDescription(context.Background(), "Printers", "Printer problems")
 	if err != nil {
 		t.Fatalf("CreateWithDescription: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestCategoryKeywordsAreBoundedToOneLine(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			svc, categories, _ := newCategoryService()
 
-			created, err := svc.CreateWithKeywords(context.Background(), "Printers", "", testCase.keywords, 0)
+			created, err := svc.CreateWithKeywords(context.Background(), "Printers", "", testCase.keywords)
 			if testCase.want == "" {
 				if err != nil {
 					t.Fatalf("CreateWithKeywords: %v", err)
@@ -259,7 +259,7 @@ func TestCategoryKeywordsValidationDoesNotDependOnTheActor(t *testing.T) {
 	// the manager form refuses.
 	svc, _, _ := newCategoryService()
 
-	_, err := svc.CreateWithKeywordsFor(context.Background(), domain.User{Role: domain.RoleRoot}, "Printers", "", strings.Repeat("a", application.MaxCategoryKeywordsRunes+1), 0)
+	_, err := svc.CreateWithKeywordsFor(context.Background(), domain.User{Role: domain.RoleRoot}, "Printers", "", strings.Repeat("a", application.MaxCategoryKeywordsRunes+1))
 	var validation *domain.ValidationError
 	if !errors.As(err, &validation) || validation.Field != "keywords" {
 		t.Fatalf("CreateWithKeywordsFor error = %v, want the keywords ValidationError", err)
@@ -271,7 +271,7 @@ func TestCategoryKeywordsRefusalOutranksNoForbiddenActor(t *testing.T) {
 	// so the refusal never leaks what a manager form would have said.
 	svc, _, _ := newCategoryService()
 
-	_, err := svc.CreateWithKeywordsFor(context.Background(), domain.User{Role: domain.RoleUser}, "Printers", "", "ok", 0)
+	_, err := svc.CreateWithKeywordsFor(context.Background(), domain.User{Role: domain.RoleUser}, "Printers", "", "ok")
 	var forbidden *domain.ForbiddenError
 	if !errors.As(err, &forbidden) {
 		t.Fatalf("CreateWithKeywordsFor error = %v, want Forbidden", err)

@@ -38,22 +38,52 @@ y el resto se crea aquí.
 
 ## Mesas y catálogo
 
-El catálogo enruta las solicitudes:
+El catálogo es un árbol de carpetas y categorías, y las mesas son los equipos que las atienden:
 
 ```text
-Department  →  Desk  →  Category
+Carpeta  →  Carpeta  →  …  →  Categoría  ⇢  Flujo  ⇢  Mesa
 ```
 
-- Un **departamento** agrupa las mesas que atienden la misma parte de la organización.
-- Una **mesa** agrupa las categorías de un equipo y contiene a sus miembros.
-- Una **categoría** agrupa las solicitudes que siguen el mismo flujo.
+- Una **carpeta** agrupa categorías y otras carpetas. Las carpetas se anidan sin límite de
+  profundidad, y una categoría está en una carpeta o en el nivel superior.
+- Una **categoría** agrupa los pedidos que siguen el mismo flujo. Los pasos **Enviar a una
+  mesa** de su flujo deciden qué **mesa** atiende sus tickets; la categoría no indica ninguna mesa.
+- Una **mesa** es un equipo: tiene miembros y atiende los tickets que los flujos le envían.
 
-Toda instalación arranca con un departamento **General** y una mesa **General**. Los nombres son
-únicos en su nivel, y una categoría siempre pertenece a una mesa.
+Toda instalación arranca con una mesa **General**. Los nombres de carpeta son únicos entre las
+carpetas del mismo padre, sin distinguir mayúsculas.
 
-**Catálogo** administra el árbol en el lugar, y **Requiere atención** muestra las mesas sin
-agentes y las categorías sin flujo publicado. Los miembros de una mesa necesitan rol Agente o
-superior. Eliminar cualquier nodo pide confirmación y no se puede deshacer.
+**Categorías** muestra todo el catálogo como un solo árbol y lo edita en el lugar, sin salir de él. Hacé clic derecho en una carpeta, una categoría o el espacio vacío del árbol (o apretá la tecla de menú o Shift+F10 sobre una fila, o sobre el árbol para el nivel superior) para acceder a las mismas acciones:
+
+| Para | Hacé esto |
+| --- | --- |
+| Crear | Usá **Nueva carpeta** o **Nueva categoría** en el encabezado: crean donde tenés la selección (dentro de la carpeta seleccionada, o junto a la categoría seleccionada), o en el nivel superior si no hay nada seleccionado. El popover muestra **Crear en: <carpeta>** con una ✕ (**Crear en el nivel superior**) para pasar al nivel superior, y el árbol se expande hasta el elemento nuevo. El **+** de una carpeta crea dentro de esa carpeta. Cada botón abre un popover anclado sin mover las filas. Con clic derecho en una carpeta o en el espacio vacío elegí cualquiera de las dos acciones para abrir un popover donde apuntaste. Los botones del encabezado fijan el tipo; el **+** de una carpeta (y el menú de clic derecho) además ofrece un selector **Carpeta** / **Categoría** que conserva el nombre. Enter guarda y prepara otra; Esc cierra el popover desde cualquier control interno. |
+| Renombrar | Editá el nombre en propiedades y guardá, o hacé doble clic en el nombre de una carpeta para editarlo en la fila. Enter guarda la edición en la fila, Esc cancela. |
+| Mover | Usá **Mover a…** en el menú de una fila o su menú contextual para buscar destinos, incluido el nivel superior. Arrastrá una fila por su nombre (o por su manija en una pantalla táctil) hasta una carpeta, o hasta un espacio vacío del árbol del catálogo para moverla al nivel superior. Usá **Cortar** en el menú de una fila o su menú contextual y después **Pegar aquí** en el menú contextual de una carpeta o del espacio vacío; también podés usar Ctrl+X (Cmd+X en macOS) sobre una fila y Ctrl+V sobre una carpeta o el árbol enfocado. Un mensaje flotante abajo muestra qué cortaste; Esc o su **Cancelar** lo cancela. **Mover…** en el menú de la fila solo aparece sin scripts. Cada movimiento ofrece **Deshacer** en un mensaje que se mantiene mientras lo señalás o tiene el foco; Ctrl+Z (Cmd+Z en macOS) sobre el árbol hace lo mismo mientras está visible. |
+| Editar detalles | En una pantalla ancha, seleccioná una carpeta o categoría para editar sus propiedades en el inspector fijo de la derecha. Enter enfoca sus campos; la fila no muestra lápiz aquí. **Guardar cambios** mantiene el inspector abierto; **Descartar** restaura los valores guardados. En una pantalla angosta, Enter o el lápiz de la fila abre un panel emergente encima o debajo de la fila. En ambas pantallas, **Propiedades** en el menú ⋯ de la fila abre su editor; el nombre de una categoría sigue siendo un enlace a su flujo. Ambas vistas editan nombre y descripción, además de las palabras clave de categorías, y enlazan al flujo y al SLA. Cambiar de selección pide confirmación antes de descartar un borrador; cambiar el tamaño de la pantalla lo conserva. |
+
+Los atajos de Cortar y Pegar se muestran en el menú ⋯ (Ctrl+X y Ctrl+V; Cmd en macOS). Las flechas navegan el árbol. Los campos de texto conservan cortar y pegar normales.
+
+Las filas del árbol no muestran cantidades de tickets ni autores del flujo. Las carpetas no muestran cantidades ni «Vacía» debajo del nombre; las filas profundas conservan su ruta.
+
+Las carpetas y categorías quedan en orden alfabético, así que mover es cambiar de carpeta, no de
+posición. Una carpeta no puede ir dentro de sí misma ni de una de sus carpetas, y solo se puede
+eliminar vacía. Un cambio rechazado conserva lo que escribiste y explica por qué. Eliminar pide
+confirmación y no se puede deshacer. **Requiere atención** muestra las categorías sin flujo
+publicado y las categorías cuyo flujo publicado no puede ejecutarse.
+
+**Mesas** tiene su propia pantalla: lista cada mesa con sus agentes, las categorías cuyo flujo
+publicado le envía tickets y sus tickets abiertos, y su panel crea, renombra y asigna miembros a
+una mesa. Los miembros de una mesa necesitan rol Agente o superior. No se puede eliminar una
+mesa que todavía usa un flujo o el historial de asignaciones.
+
+Quien reporta solo ve las carpetas que llevan a una categoría publicada. Una carpeta que solo
+contiene otra carpeta se saltea y se muestra la ruta completa.
+
+Al actualizar desde una versión con departamentos, cada categoría queda donde estaba: cada
+departamento pasa a ser una carpeta y cada mesa una carpeta dentro de ella, con la categoría
+adentro. Las carpetas copiadas del departamento y la mesa **General** iniciales se eliminan si
+quedaron vacías.
 
 Cada categoría tiene **Palabras clave para sugerencias** para el motor local y objetivos de
 **SLA** propios o de la instancia. Su flujo tiene que estar publicado para aceptar tickets.
@@ -110,7 +140,7 @@ y después el formulario con la categoría fija.
 | Motor | Comportamiento |
 | --- | --- |
 | **Desactivadas** (por defecto) | Sin sugerencias; cada persona elige del catálogo. |
-| **En este servidor** | Compara el texto con nombres, descripciones y **Palabras clave para sugerencias** de las categorías, y con los nombres de la mesa y el departamento que las contienen. Nada sale de tkt. |
+| **En este servidor** | Compara el texto con nombres, descripciones y **Palabras clave para sugerencias** de las categorías, y con los nombres de las carpetas de su ruta. Los nombres de las mesas no se usan para sugerir categorías. Nada sale de tkt. |
 | **Modelo de decisión** | Envía el texto y la lista de categorías a un endpoint externo que implementa `POST /decisions`. |
 
 Las sugerencias son orientativas: hasta tres, las elige la persona y nunca se aplican solas. Sin

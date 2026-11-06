@@ -19,7 +19,7 @@
 import { expect, type Page } from "@playwright/test";
 import { base } from "./auth.js";
 import { assertHtmxSwap } from "./htmx.js";
-import { catalogCategoryRow, catalogNode, catalogNodeId } from "./navigation.js";
+import { createCategoryInFolder, createDeskViaUi, createFolderViaUi } from "./navigation.js";
 
 export type SuggestionEngine = "off" | "local" | "model";
 
@@ -63,8 +63,8 @@ export async function setCategorySuggestionEngine(
 }
 
 export interface SuggestableCategory {
-  department: string;
-  departmentID: string;
+  folder: string;
+  folderID: string;
   desk: string;
   deskID: string;
   category: string;
@@ -74,7 +74,7 @@ export interface SuggestableCategory {
 }
 
 /**
- * Create a department, a desk, a category carrying suggestion keywords and a
+ * Create a folder, a desk, a category in that folder carrying suggestion keywords and a
  * published one-step workflow, all through the product's own screens, and return
  * the ids the journey needs to build URLs and to resolve the suggestion.
  *
@@ -88,8 +88,8 @@ export async function createSuggestableCategory(
 ): Promise<SuggestableCategory> {
   const suffix = Date.now().toString(36);
   const fixture: SuggestableCategory = {
-    department: `Suggestions Department ${suffix}`,
-    departmentID: "",
+    folder: `Suggestions Folder ${suffix}`,
+    folderID: "",
     desk: `Suggestions Desk ${suffix}`,
     deskID: "",
     category: `Suggestions Category ${suffix}`,
@@ -97,45 +97,18 @@ export async function createSuggestableCategory(
     keywords,
   };
 
-  await page.goto(base() + "/categories/departments/new?view=structure");
-  const departmentDrawer = page.getByRole("dialog", { name: /New department/i });
-  await expect(departmentDrawer).toBeVisible();
-  await departmentDrawer.locator("#category-name").fill(fixture.department);
-  await departmentDrawer.getByRole("button", { name: /create department/i }).click();
-  const departmentRow = catalogNode(page, "department", fixture.department);
-  await expect(departmentRow).toHaveCount(1);
-  fixture.departmentID = await catalogNodeId(departmentRow, `department ${fixture.department}`);
-
-  await page.goto(
-    base() + `/categories/desks/new?view=structure&department_id=${fixture.departmentID}`,
-  );
-  const deskDrawer = page.getByRole("dialog", { name: /New desk/i });
-  await expect(deskDrawer).toBeVisible();
-  await deskDrawer.locator("#category-name").fill(fixture.desk);
-  await deskDrawer.getByRole("button", { name: /create desk/i }).click();
-  const deskRow = catalogNode(page, "desk", fixture.desk);
-  await expect(deskRow).toHaveCount(1);
-  fixture.deskID = await catalogNodeId(deskRow, `desk ${fixture.desk}`);
-
-  await page.goto(
-    base() +
-      `/categories/new?view=structure&department_id=${fixture.departmentID}&desk_id=${fixture.deskID}`,
-  );
-  const categoryDrawer = page.getByRole("dialog", { name: /New category/i });
-  await expect(categoryDrawer).toBeVisible();
-  await categoryDrawer.locator("#category-name").fill(fixture.category);
+  fixture.folderID = await createFolderViaUi(page, fixture.folder);
+  fixture.deskID = await createDeskViaUi(page, fixture.desk);
   // Neutral copy on purpose: this description is indexed for the local engine, so
   // wording that a journey also writes ("request", say) would turn that journey's
   // "names no category" text into a near match and make its result depend on the
   // engine's thresholds instead of on the text being unrelated.
-  await categoryDrawer
-    .locator("#category-description")
-    .fill(`Everything about ${fixture.category}`);
-  await categoryDrawer.locator("#category-keywords").fill(fixture.keywords);
-  await categoryDrawer.getByRole("button", { name: /create category/i }).click();
-  const categoryRow = catalogCategoryRow(page, fixture.category);
-  await expect(categoryRow).toHaveCount(1);
-  fixture.categoryID = await catalogNodeId(categoryRow, `category ${fixture.category}`);
+  fixture.categoryID = await createCategoryInFolder(page, {
+    name: fixture.category,
+    folderID: fixture.folderID,
+    description: `Everything about ${fixture.category}`,
+    keywords: fixture.keywords,
+  });
 
   // A published workflow is what makes the category an offer; the single manual
   // task is the smallest draft the builder publishes.
@@ -195,7 +168,7 @@ export async function createSuggestableCategory(
 export const singlePageSuggestionSelector =
   '.ticket-create-detail [hx-get="/tickets/suggestions?mode=single"]';
 
-/** The two-step catalog's suggestion host, above the department sections. */
+/** The two-step catalog's suggestion host, above the folder level. */
 export const catalogSuggestionSelector = "#create-catalog-suggestions";
 
 /**
@@ -210,13 +183,13 @@ export const singlePageSuggestionRegion: DividerRegion = {
 };
 
 /**
- * The same region in the two-step catalog: between the search box and the first
- * department group, which is where the Suggested group appears.
+ * The same region in the two-step catalog: between the search box and the
+ * folder level, which is where the Suggested group appears.
  */
 export const catalogSuggestionRegion: DividerRegion = {
   container: ".create-catalog-sections",
   from: ".create-catalog-search",
-  to: ".create-catalog-department-group",
+  to: "[data-catalog-level]",
 };
 
 /**
@@ -338,7 +311,7 @@ export async function expectDividers(
 /**
  * Where the two-step catalog's first block of content starts, measured from the
  * bottom edge of its search box. The live suggestion region is a sibling of the
- * department groups, so an empty one must leave this number alone: with nothing
+ * folder level, so an empty one must leave this number alone: with nothing
  * suggested the catalog reads exactly as it did before the feature existed.
  */
 export async function catalogContentOffset(page: Page): Promise<number> {

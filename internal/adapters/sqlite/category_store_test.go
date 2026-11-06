@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 
@@ -10,6 +11,39 @@ import (
 
 // Task 4.6: category store — UNIQUE name → Duplicate, delete guard →
 // Referenced, GetByID/List (category-management spec).
+
+// createCategory creates c through the store and assigns c.ID.
+func createCategory(t *testing.T, s *Store, c *domain.Category) {
+	t.Helper()
+	if err := s.CategoryStore().Create(context.Background(), c); err != nil {
+		t.Fatalf("create category %q: %v", c.Name, err)
+	}
+}
+
+// createLegacyCategory inserts c with a legacy categories.desk_id through raw
+// SQL and assigns c.ID. Migration 0048 drops that column (issue #491), so only
+// tests on a schema before 0048 can arrange a legacy desk association.
+func createLegacyCategory(t *testing.T, s *Store, c *domain.Category, deskID int64) {
+	t.Helper()
+	res, err := s.db.ExecContext(context.Background(), `INSERT INTO categories (name, description, keywords, desk_id, folder_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		c.Name, c.Description, c.Keywords, deskID, nullableInt64(c.FolderID), formatTime(c.CreatedAt))
+	if err != nil {
+		t.Fatalf("insert legacy category %q: %v", c.Name, err)
+	}
+	if c.ID, err = res.LastInsertId(); err != nil {
+		t.Fatalf("legacy category id: %v", err)
+	}
+}
+
+// categoryDeskRaw reads the legacy categories.desk_id, which no store reads.
+func categoryDeskRaw(t *testing.T, s *Store, categoryID int64) sql.NullInt64 {
+	t.Helper()
+	var desk sql.NullInt64
+	if err := s.db.QueryRowContext(context.Background(), `SELECT desk_id FROM categories WHERE id = ?`, categoryID).Scan(&desk); err != nil {
+		t.Fatalf("read legacy desk of category %d: %v", categoryID, err)
+	}
+	return desk
+}
 
 func TestCategoryCreateAssignsIDAndPersists(t *testing.T) {
 	s := newTestDB(t)
@@ -268,7 +302,7 @@ func TestCategoryKeywordsRoundTrip(t *testing.T) {
 }
 
 // TestAvailableCategoriesKeepTheirProjection is the preserve test for the category
-// projection refactor: ListAvailableCategories selects five columns and shares its
+// projection refactor: ListAvailableCategories selects four columns and shares its
 // scan with the category manager, so adding the suggestion keywords must not change
 // what the requester's picker reads. It publishes a workflow and asks the picker's
 // own port, which is the call a regression would break.
@@ -291,7 +325,56 @@ func TestAvailableCategoriesKeepTheirProjection(t *testing.T) {
 	if len(available) != 1 {
 		t.Fatalf("available = %+v, want the one published category", available)
 	}
-	if available[0].ID != c || available[0].Name != "available" || available[0].DeskID == 0 {
-		t.Fatalf("available category = %+v, want the five-column projection intact", available[0])
+	if available[0].ID != c || available[0].Name != "available" || available[0].CreatedAt.IsZero() {
+		t.Fatalf("available category = %+v, want the four-column projection intact", available[0])
+	}
+}
+
+// TestCategoryStoreKeepsTheFolder: a category is created in a folder, reads it
+// back, keeps it through an edit, and an edit that names another folder (or the
+// top level) moves it — in the same write as the rest of the category (#484).
+func TestCategoryStoreKeepsTheFolder(t *testing.T) {
+	ctx := context.Background()
+	s, fs := newFolderTestStore(t)
+	store := s.CategoryStore()
+	it := createFolder(t, fs, nil, "IT services")
+	hw := createFolder(t, fs, &it, "Hardware")
+
+	c := &domain.Category{Name: "Laptop repair", FolderID: &hw, CreatedAt: folderTestNow}
+	if err := store.Create(ctx, c); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := store.GetByID(ctx, c.ID)
+	if err != nil || got.FolderID == nil || *got.FolderID != hw {
+		t.Fatalf("created category folder = %v, %v; want %d", got.FolderID, err, hw)
+	}
+	got.Description = "Broken laptop"
+	if err := store.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := store.GetByID(ctx, c.ID); again.FolderID == nil || *again.FolderID != hw || again.Description != "Broken laptop" {
+		t.Errorf("an edit lost the folder: %+v", again)
+	}
+	got.FolderID = &it
+	if err := store.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := store.GetByID(ctx, c.ID); again.FolderID == nil || *again.FolderID != it {
+		t.Errorf("edit to another folder = %v", again.FolderID)
+	}
+	got.FolderID = nil
+	if err := store.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := store.List(ctx)
+	for _, listed := range list {
+		if listed.ID == c.ID && listed.FolderID != nil {
+			t.Errorf("listed category folder = %v, want top level", *listed.FolderID)
+		}
+	}
+	missing := int64(9999)
+	bad := &domain.Category{Name: "Orphan", FolderID: &missing, CreatedAt: folderTestNow}
+	if err := store.Create(ctx, bad); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("create in a missing folder: err = %v, want not found", err)
 	}
 }

@@ -52,18 +52,31 @@ func NewCategoryService(categories CategoryStore, clock domain.Clock) *CategoryS
 
 // Create stores a category with a unique non-empty name.
 func (s *CategoryService) Create(ctx context.Context, name string) (*domain.Category, error) {
-	return s.CreateWithDescription(ctx, name, "", 0)
+	return s.CreateWithDescription(ctx, name, "")
 }
 
-func (s *CategoryService) CreateWithDescription(ctx context.Context, name, description string, deskID int64) (*domain.Category, error) {
-	return s.CreateWithKeywords(ctx, name, description, "", deskID)
+func (s *CategoryService) CreateWithDescription(ctx context.Context, name, description string) (*domain.Category, error) {
+	return s.CreateWithKeywords(ctx, name, description, "")
 }
 
 // CreateWithKeywords is CreateWithDescription plus the administrator's
 // suggestion keywords (issue #416, S4). The description-only form above stays
 // because it is the contract every existing caller and fixture arranged with,
 // and an empty keywords field is exactly what it asks for.
-func (s *CategoryService) CreateWithKeywords(ctx context.Context, name, description, keywords string, deskID int64) (*domain.Category, error) {
+func (s *CategoryService) CreateWithKeywords(ctx context.Context, name, description, keywords string) (*domain.Category, error) {
+	return s.create(ctx, name, description, keywords, nil)
+}
+
+// CreateInFolderFor creates a category inside folderID (nil = top level) in one
+// write (issue #484), for category managers only.
+func (s *CategoryService) CreateInFolderFor(ctx context.Context, actor domain.User, name, description, keywords string, folderID *int64) (*domain.Category, error) {
+	if !NewPolicy().Capabilities(actor.Role).Require(CapManageCategories) {
+		return nil, domain.NewForbiddenError("category management is not permitted")
+	}
+	return s.create(ctx, name, description, keywords, folderID)
+}
+
+func (s *CategoryService) create(ctx context.Context, name, description, keywords string, folderID *int64) (*domain.Category, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, &domain.ValidationError{Field: "name", Message: domain.ErrMsgCategoryNameRequired, Key: "error.category_name_required"}
@@ -72,7 +85,7 @@ func (s *CategoryService) CreateWithKeywords(ctx context.Context, name, descript
 	if err != nil {
 		return nil, err
 	}
-	c := &domain.Category{Name: name, Description: strings.TrimSpace(description), Keywords: keywords, DeskID: deskID, CreatedAt: s.clock.Now()}
+	c := &domain.Category{Name: name, Description: strings.TrimSpace(description), Keywords: keywords, FolderID: folderID, CreatedAt: s.clock.Now()}
 	if err := s.categories.Create(ctx, c); err != nil {
 		return nil, err
 	}
@@ -81,19 +94,19 @@ func (s *CategoryService) CreateWithKeywords(ctx context.Context, name, descript
 
 // CreateFor creates a category only for an administrator or root actor.
 func (s *CategoryService) CreateFor(ctx context.Context, actor domain.User, name string) (*domain.Category, error) {
-	return s.CreateWithDescriptionFor(ctx, actor, name, "", 0)
+	return s.CreateWithDescriptionFor(ctx, actor, name, "")
 }
 
-func (s *CategoryService) CreateWithDescriptionFor(ctx context.Context, actor domain.User, name, description string, deskID int64) (*domain.Category, error) {
-	return s.CreateWithKeywordsFor(ctx, actor, name, description, "", deskID)
+func (s *CategoryService) CreateWithDescriptionFor(ctx context.Context, actor domain.User, name, description string) (*domain.Category, error) {
+	return s.CreateWithKeywordsFor(ctx, actor, name, description, "")
 }
 
 // CreateWithKeywordsFor is the authorized form of CreateWithKeywords.
-func (s *CategoryService) CreateWithKeywordsFor(ctx context.Context, actor domain.User, name, description, keywords string, deskID int64) (*domain.Category, error) {
+func (s *CategoryService) CreateWithKeywordsFor(ctx context.Context, actor domain.User, name, description, keywords string) (*domain.Category, error) {
 	if !NewPolicy().Capabilities(actor.Role).Require(CapManageCategories) {
 		return nil, domain.NewForbiddenError("category management is not permitted")
 	}
-	return s.CreateWithKeywords(ctx, name, description, keywords, deskID)
+	return s.CreateWithKeywords(ctx, name, description, keywords)
 }
 
 // Rename changes the category's name; the new name must be non-empty and

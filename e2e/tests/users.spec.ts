@@ -29,6 +29,7 @@ import {
   measureContrast,
 } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
+import { expectPopoverInView } from "./helpers/popover.js";
 import {
   collectConsoleWithLocation,
   expectRefusalResponse,
@@ -271,9 +272,8 @@ test.describe("Users", () => {
 
   // Issue #47 regression journeys: atomic Agent-to-User downgrade handoff.
 
-  // The Catalog is one tree (issue #387): the desk is resolved by its exact row
-  // and the browser is left on its legacy selection URL, which is the context the
-  // desk drawer and the member routes carry.
+  // Desks have their own screen (issue #484): the desk is resolved by its exact
+  // row on /desks, where its drawer and member routes live.
   async function selectDesk(page: import("@playwright/test").Page, name: string): Promise<string> {
     return selectCatalogDesk(page, name);
   }
@@ -337,7 +337,7 @@ test.describe("Users", () => {
     deskName: string,
     memberName: string,
   ): Promise<void> {
-    await page.goto(base() + "/categories?view=structure");
+    await page.goto(base() + "/desks");
     await selectDesk(page, deskName);
     await openSelectedDeskDrawer(page, deskName);
     const addSelect = page.locator(".desk-add-member select");
@@ -500,7 +500,7 @@ test.describe("Users", () => {
     await expect(rowA).toContainText("User");
 
     // Membership removed: the desk member list no longer shows A.
-    await page.goto(base() + "/categories?view=structure");
+    await page.goto(base() + "/desks");
     await selectDesk(page, "General Support");
     await openSelectedDeskDrawer(page, "General Support");
     await expect(
@@ -807,6 +807,7 @@ test.describe("Users", () => {
     }
     const menu = page.locator(`[id="${menuId}"]`);
     await expect(menu).toBeVisible();
+    await expectPopoverInView(menu);
     await page.keyboard.press("ArrowDown");
     await expect(menu.getByRole("menuitem").first()).toBeFocused();
     await page.keyboard.press("ArrowDown");

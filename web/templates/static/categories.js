@@ -54,8 +54,7 @@
     closeMenus(menu);
     menu.hidden = false;
     button.setAttribute("aria-expanded", "true");
-    const buttonBox = button.getBoundingClientRect();
-    menu.classList.toggle("up", buttonBox.bottom + menu.offsetHeight > window.innerHeight);
+    window.tktPositionMenu(button, menu);
     return true;
   }
 
@@ -119,10 +118,13 @@
       }
     }
   }
+  // The screen this script drives names its own list URL: /categories, or
+  // /desks for the desks page (issue #484), which reuses the same drawer and
+  // menu mechanics.
   const listURL = () => {
-    const path = location.pathname;
-    if (path === "/categories") return path + location.search;
-    return "/categories";
+    const base = root()?.dataset.listUrl || "/categories";
+    if (location.pathname === base) return base + location.search;
+    return base;
   };
   const drawerState = (panel, url = drawerURL || location.pathname + location.search) => ({
     [KEY]: 1,
@@ -134,7 +136,7 @@
   const baseState = (url) => ({ [KEY]: 1, kind: "base", url });
   const categoryForm = () => document.getElementById("category-drawer-form");
   const drawerIdentity = (panel) => `${panel?.dataset.kind || ""}:${panel?.dataset.id || ""}`;
-  const drawerValues = (panel = drawer(), form = categoryForm()) => {
+  const drawerValues = (form = categoryForm()) => {
     const values = {
       name: form?.elements.name?.value || "",
       description: form?.elements.description?.value || "",
@@ -143,19 +145,16 @@
       // to them is an unsaved change like any other field.
       keywords: form?.elements.keywords?.value || "",
     };
-    if (panel?.dataset.kind === "category") {
-      values.department_id = form?.elements.department_id?.value || "";
-      values.desk_id = form?.elements.desk_id?.value || "";
-    } else if (panel?.dataset.kind === "desk") {
-      values.department_id = form?.elements.department_id?.value || "";
-    }
+    // The folder select is on the category, new-folder and move drawers;
+    // absent elements read "".
+    values.folder_id = form?.elements.folder_id?.value || "";
     return values;
   };
   const dirty = () => {
     const panel = drawer();
     if (!panel) return false;
     if (panel.dataset.serverError === "true") return true;
-    const values = drawerValues(panel);
+    const values = drawerValues();
     return !!baseline && Object.keys(values).some((key) => values[key] !== baseline[key]);
   };
 
@@ -163,7 +162,7 @@
     if (!panel || panel.dataset.serverError === "true") return;
     const identity = drawerIdentity(panel);
     if (baseline && baselineIdentity === identity) return;
-    baseline = drawerValues(panel);
+    baseline = drawerValues();
     baselineIdentity = identity;
   }
 
@@ -212,7 +211,7 @@
     }
   }
 
-  // Deleting a department, desk or category cannot be undone (#343, S6), so the
+  // Deleting a folder, desk or category cannot be undone (#343, S6), so the
   // direct control opens a confirmation that names the row before the request
   // leaves the browser. The menu item stays a submit button: without the script
   // the form still submits, and the server keeps the last word either way. The
@@ -293,12 +292,15 @@
     }
   }
 
-  // Accessible fallback for a launcher that vanished during an update. The New
-  // menu is the catalog's one creation control and it is always on the page, so it
-  // is the first target. If even that is gone, focus the tree's labelled region as
-  // a programmatic target. Focus never falls silently to <body>.
+  // Accessible fallback for a launcher that vanished during an update. The tree
+  // is the catalog's editing surface (its right-click menu creates, issue #487)
+  // and it is focusable, so it is the first target; without a script the New
+  // folder link is. If neither is there, focus the tree's labelled region as a
+  // programmatic target. Focus never falls silently to <body>.
   function closeFallbackFocus(panel) {
-    const launcher = root()?.querySelector("[data-catalog-new-toggle]");
+    const launcher =
+      root()?.querySelector('[role="tree"][tabindex]') ||
+      root()?.querySelector("[data-catalog-new-toggle]");
     if (launcher) return launcher;
     const region = root()?.querySelector("section[aria-labelledby]");
     if (!region) return null;
@@ -371,7 +373,6 @@
     } else if (state.drawerURL !== url) {
       history.replaceState(drawerState(panel, url), "", url);
     }
-    filterDeskOptions(panel.querySelector("#category-department")?.value || "");
     captureBaseline(panel);
     lockBackground(true);
     const invalid = panel.querySelector("[aria-invalid='true']");
@@ -437,7 +438,7 @@
       (action.pathname !== membershipPath && !action.pathname.startsWith(`${membershipPath}/`))
     )
       return;
-    pendingDeskValues = { deskID: panel.dataset.id, values: drawerValues(panel), ready: false };
+    pendingDeskValues = { deskID: panel.dataset.id, values: drawerValues(), ready: false };
   }
 
   function captureDeskValues(event) {
@@ -470,7 +471,7 @@
     captureDeskValues(event);
     // A refused form renders into the region it came from instead of being
     // dropped: the drawer keeps its submitted values, and a refused delete
-    // keeps the structure view with the same department, desk and error.
+    // keeps the same view with its error.
     const retarget = xhr?.getResponseHeader("HX-Retarget");
     const expected =
       [400, 403, 404, 409, 422].includes(xhr?.status) &&
@@ -548,23 +549,6 @@
       } else if (!event.target.closest(".category-overflow")) {
         closeMenus();
       }
-    },
-    true,
-  );
-
-  function filterDeskOptions(department) {
-    const desk = document.getElementById("category-desk");
-    if (!desk) return;
-    [...desk.options].forEach((option) => {
-      option.hidden = option.value !== "" && option.dataset.departmentId !== department;
-    });
-    if (desk.selectedOptions[0]?.hidden) desk.value = "";
-  }
-
-  document.addEventListener(
-    "change",
-    (event) => {
-      if (event.target.id === "category-department") filterDeskOptions(event.target.value);
     },
     true,
   );
@@ -655,7 +639,6 @@
       busy = false;
       panel.removeAttribute("aria-busy");
       restoreDeskValues(panel);
-      filterDeskOptions(panel.querySelector("#category-department")?.value || "");
       openDrawer();
     }
   });

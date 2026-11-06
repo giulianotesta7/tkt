@@ -44,6 +44,7 @@
   // highlight between the option buttons and filters the assignee list.
   // ---------------------------------------------------------------------
   let openPicker = null;
+  let stopPickerPosition = null;
 
   const pickerOptions = (root) => Array.from(root.querySelectorAll(".listbox-option"));
 
@@ -53,6 +54,8 @@
     const button = root.querySelector(".listbox-button");
     const popover = root.querySelector(".listbox-popover");
     if (popover) delete popover.dataset.open;
+    stopPickerPosition?.();
+    stopPickerPosition = null;
     if (button) {
       button.setAttribute("aria-expanded", "false");
       if (restoreFocus) button.focus();
@@ -77,6 +80,7 @@
     openPicker = root;
     button.setAttribute("aria-expanded", "true");
     popover.dataset.open = "1";
+    stopPickerPosition = window.tktPositionMenu(button, popover);
     const search = root.querySelector(".listbox-search");
     if (search) {
       search.value = "";

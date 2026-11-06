@@ -26,12 +26,15 @@ func newCategoryStore(db *sql.DB) *categoryStore { return &categoryStore{db: db}
 // c.Keywords rides along as typed — the application layer owns its bound and the
 // migration-0031 triggers index it (issue #416).
 func (cs *categoryStore) Create(ctx context.Context, c *domain.Category) error {
-	res, err := cs.db.ExecContext(ctx, `INSERT INTO categories (name, description, keywords, desk_id, created_at)
-		VALUES (?, ?, ?, COALESCE(NULLIF(?, 0), (SELECT id FROM desks WHERE lower(name)='general' ORDER BY id LIMIT 1)), ?)`,
-		c.Name, c.Description, c.Keywords, c.DeskID, formatTime(c.CreatedAt))
+	res, err := cs.db.ExecContext(ctx, `INSERT INTO categories (name, description, keywords, folder_id, created_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		c.Name, c.Description, c.Keywords, nullableInt64(c.FolderID), formatTime(c.CreatedAt))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return &domain.DuplicateError{Kind: "category", Name: c.Name}
+		}
+		if isForeignKeyViolation(err) && c.FolderID != nil {
+			return &domain.NotFoundError{Kind: "folder", ID: *c.FolderID}
 		}
 		return fmt.Errorf("sqlite: create category: %w", err)
 	}
@@ -40,20 +43,23 @@ func (cs *categoryStore) Create(ctx context.Context, c *domain.Category) error {
 		return fmt.Errorf("sqlite: category id: %w", err)
 	}
 	c.ID = id
-	if c.DeskID == 0 {
-		_ = cs.db.QueryRowContext(ctx, `SELECT desk_id FROM categories WHERE id=?`, c.ID).Scan(&c.DeskID)
-	}
 	return nil
 }
 
 // Update persists the category (rename). A rename onto an existing name is
-// a DuplicateError.
+// a DuplicateError. A category names no desk (issue #491): the legacy
+// categories.desk_id column is never written here, so an existing value stays.
 func (cs *categoryStore) Update(ctx context.Context, c *domain.Category) error {
-	res, err := cs.db.ExecContext(ctx, `UPDATE categories SET name = ?, description = ?, keywords = ?, desk_id = COALESCE(NULLIF(?, 0), desk_id) WHERE id = ?`,
-		c.Name, c.Description, c.Keywords, c.DeskID, c.ID)
+	// folder_id is written as given: every caller edits a category it read with
+	// GetByID, so an unchanged folder is passed back unchanged (issue #484).
+	res, err := cs.db.ExecContext(ctx, `UPDATE categories SET name = ?, description = ?, keywords = ?, folder_id = ? WHERE id = ?`,
+		c.Name, c.Description, c.Keywords, nullableInt64(c.FolderID), c.ID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return &domain.DuplicateError{Kind: "category", Name: c.Name}
+		}
+		if isForeignKeyViolation(err) && c.FolderID != nil {
+			return &domain.NotFoundError{Kind: "folder", ID: *c.FolderID}
 		}
 		return fmt.Errorf("sqlite: update category: %w", err)
 	}
@@ -91,7 +97,7 @@ func (cs *categoryStore) Delete(ctx context.Context, id int64) error {
 // GetByID returns the category; ErrNotFound when absent.
 func (cs *categoryStore) GetByID(ctx context.Context, id int64) (*domain.Category, error) {
 	c, err := scanCategoryWithKeywordsFrom(cs.db.QueryRowContext(ctx,
-		`SELECT id, name, description, keywords, desk_id, created_at FROM categories WHERE id = ?`, id))
+		`SELECT id, name, description, keywords, created_at, folder_id FROM categories WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, &domain.NotFoundError{Kind: "category", ID: id}
 	}
@@ -103,7 +109,7 @@ func (cs *categoryStore) GetByID(ctx context.Context, id int64) (*domain.Categor
 
 // List returns all categories ordered by id.
 func (cs *categoryStore) List(ctx context.Context) ([]domain.Category, error) {
-	rows, err := cs.db.QueryContext(ctx, `SELECT id, name, description, keywords, desk_id, created_at FROM categories ORDER BY id ASC`)
+	rows, err := cs.db.QueryContext(ctx, `SELECT id, name, description, keywords, created_at, folder_id FROM categories ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: list categories: %w", err)
 	}
@@ -122,21 +128,17 @@ func (cs *categoryStore) List(ctx context.Context) ([]domain.Category, error) {
 	return out, nil
 }
 
-// scanCategoryFrom projects one row of the FIVE-column category projection into a
-// domain.Category: id, name, description, desk_id, created_at. It is the shape
+// scanCategoryFrom projects one row of the FOUR-column category projection into a
+// domain.Category: id, name, description, created_at. It is the shape
 // ListAvailableCategories selects, so callers that need the suggestion keywords
 // use scanCategoryWithKeywordsFrom instead of teaching every read the new column.
 func scanCategoryFrom(scan rowScanner) (*domain.Category, error) {
 	var (
 		c         domain.Category
 		createdAt string
-		deskID    sql.NullInt64
 	)
-	if err := scan.Scan(&c.ID, &c.Name, &c.Description, &deskID, &createdAt); err != nil {
+	if err := scan.Scan(&c.ID, &c.Name, &c.Description, &createdAt); err != nil {
 		return nil, err
-	}
-	if deskID.Valid {
-		c.DeskID = deskID.Int64
 	}
 	var err error
 	if c.CreatedAt, err = time.Parse(timeLayout, createdAt); err != nil {
@@ -146,18 +148,20 @@ func scanCategoryFrom(scan rowScanner) (*domain.Category, error) {
 }
 
 // scanCategoryWithKeywordsFrom projects one row of the SIX-column projection the
-// category manager reads: the five columns above plus the suggestion keywords.
+// category manager reads: the four columns above plus the suggestion keywords,
+// then the folder (issue #484).
 func scanCategoryWithKeywordsFrom(scan rowScanner) (*domain.Category, error) {
 	var (
 		c         domain.Category
 		createdAt string
-		deskID    sql.NullInt64
 	)
-	if err := scan.Scan(&c.ID, &c.Name, &c.Description, &c.Keywords, &deskID, &createdAt); err != nil {
+	var folderID sql.NullInt64
+	if err := scan.Scan(&c.ID, &c.Name, &c.Description, &c.Keywords, &createdAt, &folderID); err != nil {
 		return nil, err
 	}
-	if deskID.Valid {
-		c.DeskID = deskID.Int64
+	if folderID.Valid {
+		v := folderID.Int64
+		c.FolderID = &v
 	}
 	var err error
 	if c.CreatedAt, err = time.Parse(timeLayout, createdAt); err != nil {

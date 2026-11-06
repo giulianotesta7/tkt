@@ -190,9 +190,9 @@
   function categoryName(form) {
     const path = form.querySelector(".selected-catalog-path span");
     if (!path) return "";
-    // The picker renders "Department / Desk / Category"; the notice names the
-    // category the operator left, not the whole path.
-    const parts = path.textContent.split("/");
+    // The path reads "Folder › Subfolder › Category" (issue #484); the notice
+    // names the category the operator left, not the whole path.
+    const parts = path.textContent.split("›");
     return parts[parts.length - 1].trim();
   }
 

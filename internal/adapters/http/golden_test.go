@@ -270,11 +270,10 @@ func fixtureTicketFormData() ticketFormData {
 		AssignableUsers: []domain.User{ana},
 	}
 	selected := &domain.CatalogCategory{
-		Category:       domain.Category{ID: 1, Name: "Bugs", CreatedAt: goldenT0},
-		DepartmentName: "Technology",
-		DeskName:       "Service desk",
+		Category:   domain.Category{ID: 1, Name: "Bugs", CreatedAt: goldenT0},
+		FolderPath: []string{"Technology", "Service desk"},
 	}
-	// The picker's offers, grouped one entry per desk (issue #391, S3). The
+	// The picker's offers, grouped by folder path (issue #484, S11). The
 	// second row is the shape a published category that cannot run renders: the
 	// frozen fixture pins it so the golden carries the disabled option and the
 	// reason beside a healthy one.
@@ -282,9 +281,8 @@ func fixtureTicketFormData() ticketFormData {
 		{CatalogCategory: *selected},
 		{
 			CatalogCategory: domain.CatalogCategory{
-				Category:       domain.Category{ID: 2, Name: "Printers", CreatedAt: goldenT0},
-				DepartmentName: "Technology",
-				DeskName:       "Service desk",
+				Category:   domain.Category{ID: 2, Name: "Printers", CreatedAt: goldenT0},
+				FolderPath: []string{"Technology", "Service desk"},
 			},
 			Unavailable: true,
 			Reason: application.MsgRef("categories.badge.cannot_run",
@@ -520,7 +518,7 @@ func TestTwoStepTicketFormPresentation(t *testing.T) {
 	for _, want := range []string{
 		`<input type="hidden" name="category_id" value="1">`,
 		`<span class="prop-label">Category</span>`,
-		`<span>Technology / Service desk / Bugs</span>`,
+		`<span>Technology › Service desk › Bugs</span>`,
 		`<a href="/tickets/new">Change</a>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -1224,70 +1222,38 @@ func fixtureUserFormData() userFormData {
 
 func fixtureCategoriesIndexData() categoriesIndexData {
 	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
-	// The catalog tree (issue #387): the frozen page has to see every level, its
-	// per-row health and both native filters' chrome, so the fixture supplies real
-	// departments, desks and categories instead of a flat list.
-	technology := domain.CatalogDepartment{
-		Department: domain.Department{ID: 1, Name: "Technology", Description: "Engineering and platform", CreatedAt: goldenT0},
+	// The catalog folders (issue #484): the frozen page shows the Folders
+	// layout on "IT services", a folder holding a subfolder and two categories,
+	// so it sees folder counts, workflow badges, SLA states, an empty folder's
+	// attention and every row menu.
+	itID, hwID := int64(1), int64(2)
+	folders := []domain.Folder{
+		{ID: itID, Name: "IT services", Description: "Laptops and access", CreatedAt: goldenT0},
+		{ID: hwID, ParentID: &itID, Name: "Hardware", CreatedAt: goldenT0},
+		{ID: 3, Name: "Facilities", CreatedAt: goldenT0},
 	}
-	support := domain.CatalogDepartment{
-		Department: domain.Department{ID: 2, Name: "Support", Description: "Customer support", CreatedAt: goldenT0},
-	}
-	serviceDesk := domain.CatalogDesk{
-		Desk:          domain.Desk{ID: 1, Name: "Service desk", Description: "First-line triage", CreatedAt: goldenT0},
-		DepartmentID:  1,
-		CategoryCount: 2,
-		AgentCount:    3,
-		OpenTickets:   4,
-	}
-	platform := domain.CatalogDesk{
-		Desk:         domain.Desk{ID: 2, Name: "Platform", Description: "Infrastructure", CreatedAt: goldenT0},
-		DepartmentID: 1,
-	}
-	helpdesk := domain.CatalogDesk{
-		Desk:         domain.Desk{ID: 3, Name: "Helpdesk", Description: "Walk-up support", CreatedAt: goldenT0},
-		DepartmentID: 2,
-		OpenTickets:  1,
-	}
-	bugs := domain.Category{ID: 1, Name: "Bugs", Description: "Defects and regressions", DeskID: 1, CreatedAt: goldenT0}
-	supportCat := domain.Category{ID: 2, Name: "Support", Description: "Customer questions", DeskID: 1, CreatedAt: goldenT1}
+	bugs := domain.Category{ID: 1, Name: "Bugs", Description: "Defects and regressions", FolderID: &itID, CreatedAt: goldenT0}
+	access := domain.Category{ID: 2, Name: "Access", Description: "Accounts and passwords", FolderID: &itID, CreatedAt: goldenT1}
+	state := categoryViewState{Folder: itID}
 	data := categoriesIndexData{
-		pageData:             pageData{NavActive: "categories", CurrentUser: ana},
-		SelectedDepartmentID: 1,
-		SelectedDeskID:       1,
-		SearchClearURL:       "/categories",
-		AttentionURL:         "/categories?attention=1",
-		Tree: buildCatalogTree(catalogTreeInput{
-			Locale:      "en",
-			Departments: []domain.CatalogDepartment{technology, support},
-			Desks:       []domain.CatalogDesk{serviceDesk, platform, helpdesk},
-			Categories:  []domain.Category{bugs, supportCat},
+		pageData:       pageData{NavActive: "categories", CurrentUser: ana},
+		State:          state,
+		SearchClearURL: "/categories?folder=1",
+		AttentionURL:   "/categories?attention=1&folder=1",
+		View: buildCatalogView(catalogViewInput{
+			Folders:    folders,
+			Places:     map[int64]*int64{1: &itID, 2: &itID},
+			Categories: []domain.Category{bugs, access},
 			States: map[int64]catalogCategoryState{
 				1: {Badge: application.MsgRef("categories.badge.published", application.Text("1")), Tone: "ok", Published: true},
 				2: {Badge: application.MsgRef("categories.badge.draft_only"), Tone: "neutral"},
 			},
-			OpenTickets:  map[int64]int{1: 3, 2: 1},
-			SLADefaults:  map[int64]bool{1: true},
-			SLAEnabled:   true,
-			DepartmentID: 1,
-			DeskID:       1,
+			SLADefaults: map[int64]bool{1: true},
+			SLAEnabled:  true,
 		}),
 	}
 	// The real categories index sets both flags (handlers_categories.go), which
 	// is what makes the {{if .CategoryAssets}} block part of the frozen page.
-	data.CategoryAssets, data.PageFoundationAssets = true, true
-	return data
-}
-
-func fixtureCategoryFormData() categoryFormData {
-	ana := domain.User{ID: 1, Name: "Ana Torres", Email: "ana@example.com", Active: true, CreatedAt: goldenT0}
-	// The real category form is the drawer rendered on the categories index,
-	// which sets both flags; the standalone categories_new page mirrors it.
-	data := categoryFormData{
-		pageData:   pageData{NavActive: "categories", CurrentUser: ana},
-		CategoryID: 1,
-		Name:       "Bugs",
-	}
 	data.CategoryAssets, data.PageFoundationAssets = true, true
 	return data
 }
@@ -1310,14 +1276,6 @@ func TestGoldenUserForm(t *testing.T) {
 
 func TestGoldenCategoriesIndex(t *testing.T) {
 	goldenFullPage(t, "categories_index", renderGolden(t, "categories_index", "", fixtureCategoriesIndexData(), false))
-}
-
-func TestGoldenCategoriesNew(t *testing.T) {
-	goldenFullPage(t, "categories_new", renderGolden(t, "categories_new", "", fixtureCategoryFormData(), false))
-}
-
-func TestGoldenCategoryForm(t *testing.T) {
-	goldenFile(t, "category_form", renderGolden(t, "categories_new", "category_form", fixtureCategoryFormData(), true))
 }
 
 // The settings section fixtures model an admin shell on each section, so they

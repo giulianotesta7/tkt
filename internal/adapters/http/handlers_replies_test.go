@@ -45,16 +45,11 @@ type savedRepliesFixture struct {
 
 func seedSavedReplies(t *testing.T, h *harness) savedRepliesFixture {
 	t.Helper()
-	catalog := application.NewCatalogService(h.store.CatalogStore(), h.store.CategoryStore(), h.clock)
-	department, err := catalog.CreateDepartmentFor(t.Context(), *h.admin, "Operations", "")
-	if err != nil {
-		t.Fatalf("create department: %v", err)
-	}
-	desk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "Service desk")
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Service desk")
 	if err != nil {
 		t.Fatalf("create service desk: %v", err)
 	}
-	otherDesk, err := catalog.CreateDeskFor(t.Context(), *h.admin, department.ID, "People desk")
+	otherDesk, err := h.desks.Create(t.Context(), *h.admin, "People desk")
 	if err != nil {
 		t.Fatalf("create people desk: %v", err)
 	}

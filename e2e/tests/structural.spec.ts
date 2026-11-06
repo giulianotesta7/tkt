@@ -155,9 +155,9 @@ function authenticatedScreens(deps: {
       label: `/categories`,
       path: "/categories",
       heading: (p) => p.locator('h1:has-text("Catalog")'),
-      // The tree replaced three creation launchers with one New menu; its trigger
-      // is the screen's primary control, and the menu holds the three entries.
-      control: (p) => p.locator("[data-catalog-new-toggle]"),
+      // The tree is the screen's editing surface: its right-click menu creates,
+      // renames and moves (issue #487).
+      control: (p) => p.locator('[role="tree"]'),
     },
     {
       label: `/categories/new`,
@@ -184,11 +184,11 @@ function authenticatedScreens(deps: {
       control: (p) => p.locator(".sla-grid"),
     },
     {
-      label: `/categories/desk-compatibility`,
+      label: `/desks`,
       path: "/desks",
-      expectedUrl: /\/categories$/,
-      heading: (p) => p.locator('h1:has-text("Catalog")'),
-      control: (p) => p.locator("[data-catalog-new-toggle]"),
+      expectedUrl: /\/desks$/,
+      heading: (p) => p.locator('h1:has-text("Desks")'),
+      control: (p) => p.getByRole("link", { name: "New desk" }),
     },
     // Settings is one section per URL since issue #383: each section is its
     // own canonical screen, and the bare /settings URL only redirects to the

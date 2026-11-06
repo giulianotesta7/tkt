@@ -24,13 +24,10 @@ func TestCountCleanup(t *testing.T) {
 			t.Error("workflow step rail missing")
 		}
 	})
-	t.Run("departments", func(t *testing.T) {
+	t.Run("folders", func(t *testing.T) {
 		body := renderGolden(t, "categories_index", "", fixtureCategoriesIndexData(), false)
-		if strings.Contains(body, "2 desks · 3 agents") {
-			t.Error("department agent count remains")
-		}
-		if !strings.Contains(body, ">2 desks</span>") || !strings.Contains(body, ">3 agents</span>") {
-			t.Error("desk count or desk agent count missing")
+		if strings.Contains(body, "1 folder · 2 categories") || strings.Contains(body, `>Empty</span>`) {
+			t.Error("folder counts or empty label remain")
 		}
 	})
 }

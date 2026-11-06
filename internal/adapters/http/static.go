@@ -31,6 +31,7 @@ type staticAsset struct {
 // and the asset template helper versions it, so a route cannot be served
 // without a versioned URL or linked without being served.
 var staticAssets = []staticAsset{
+	{route: "/static/overlay.js", name: "static/overlay.js", contentType: "text/javascript; charset=utf-8"},
 	{route: "/static/htmx.min.js", name: "static/htmx.min.js", contentType: "text/javascript; charset=utf-8"},
 	{route: "/static/InterVariable.woff2", name: "static/InterVariable.woff2", contentType: "font/woff2"},
 	{route: "/static/users.css", name: "static/users.css", contentType: "text/css; charset=utf-8"},
@@ -54,6 +55,7 @@ var staticAssets = []staticAsset{
 	{route: "/static/sla_duration.js", name: "static/sla_duration.js", contentType: "text/javascript; charset=utf-8"},
 	{route: "/static/workflow.js", name: "static/workflow.js", localized: true},
 	{route: "/static/categories.js", name: "static/categories.js", localized: true},
+	{route: "/static/catalog-tree.js", name: "static/catalog-tree.js", localized: true},
 	{route: "/static/save-feedback.js", name: "static/save-feedback.js", localized: true},
 	{route: "/static/ticket_metrics.js", name: "static/ticket_metrics.js", localized: true},
 	{route: "/static/sla_countdown.js", name: "static/sla_countdown.js", localized: true},

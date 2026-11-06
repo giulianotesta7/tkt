@@ -10,7 +10,7 @@ import (
 	"github.com/giulianotesta7/tkt/internal/domain"
 )
 
-func TestAmendment3_CategoryIndexUsesAccessibleResponsiveTable(t *testing.T) {
+func TestAmendment3_CategoryIndexUsesAccessibleResponsiveTree(t *testing.T) {
 	h := newHarness(t)
 	category, err := h.categories.Create(t.Context(), "Long category name for a narrow layout")
 	if err != nil {
@@ -23,8 +23,8 @@ func TestAmendment3_CategoryIndexUsesAccessibleResponsiveTable(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`data-level="category"`,
-		`catalog-category-link" href="/categories/` + strconv.FormatInt(category.ID, 10) + `/workflow"`,
+		`data-catalog-id="` + strconv.FormatInt(category.ID, 10) + `" data-level="category"`,
+		`href="/categories/` + strconv.FormatInt(category.ID, 10) + `/workflow">`,
 		`/categories/` + strconv.FormatInt(category.ID, 10) + `/delete`, `category-menu-button`, `>Delete category</button>`, `Actions for ` + category.Name,
 	} {
 		if !strings.Contains(body, want) {
@@ -75,25 +75,15 @@ func TestAmendment3_PinnedClaimUsesEligibleSidebarControl(t *testing.T) {
 	}
 }
 
-func TestAmendment3_DesksMasterDetailSelectionAndMemberOptions(t *testing.T) {
-	h := newHarness(t)
-	desk, err := h.desks.Create(t.Context(), *h.admin, "Legacy desk")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rec := h.get(t, "/desks?desk_id="+strconv.FormatInt(desk.ID, 10), false)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/categories" {
-		t.Fatalf("legacy desk page = %d/%q, want redirect to unified catalog", rec.Code, rec.Header().Get("Location"))
-	}
-}
-
-func TestAmendment3_DesksSelectionMarksOnlyCurrentLink(t *testing.T) {
+// GET /desks is the desks screen again (issue #484, S15) instead of a redirect
+// to the unified catalog; an unknown desk_id in the query is ignored.
+func TestAmendment3_DesksPageRendersForAnyQuery(t *testing.T) {
 	h := newHarness(t)
 	for _, target := range []string{"/desks", "/desks?desk_id=999999"} {
 		t.Run(target, func(t *testing.T) {
 			rec := h.get(t, target, false)
-			if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/categories" {
-				t.Fatalf("GET %s = %d/%q, want redirect to unified catalog", target, rec.Code, rec.Header().Get("Location"))
+			if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<h1 class="command-title">Desks</h1>`) {
+				t.Fatalf("GET %s = %d, want the desks screen", target, rec.Code)
 			}
 		})
 	}

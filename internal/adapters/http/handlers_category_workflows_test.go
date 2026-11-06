@@ -255,10 +255,10 @@ func TestStructureLayout_CSSPinned(t *testing.T) {
 	for _, want := range []string{
 		// The tree is one panel: a card with a hairline, never three columns.
 		".catalog-tree{border:1px solid var(--line);border-radius:12px;background:var(--card);",
-		// Depth is drawn by indentation, and only the depth inside a department and
-		// inside a desk is declared, so a new level cannot appear by accident.
-		".catalog-tree-department>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:24px}",
-		".catalog-tree-desk>.catalog-tree-list>.catalog-tree-node>.catalog-tree-row{padding-left:48px}",
+		// Depth is drawn by nested indentation that stops past level 4, so a deep
+		// folder tree stays readable (issue #484).
+		".catalog-folder-tree .catalog-tree-list .catalog-tree-list{padding-left:24px}",
+		`.catalog-folder-tree [data-depth="4"] .catalog-tree-list{padding-left:0}`,
 		// The disclosure is a button with a drawn chevron; its expanded state flips
 		// the mark instead of swapping a glyph, so the copy stays in the catalogue.
 		".catalog-disclosure[aria-expanded=false] .catalog-disclosure-mark{transform:rotate(-45deg)",
@@ -272,8 +272,7 @@ func TestStructureLayout_CSSPinned(t *testing.T) {
 		// first table cell 46%. The tree's rows are flex rows, so the narrow-viewport
 		// rule that matters is the one that lets a category's health wrap to a second
 		// line instead of forcing horizontal scroll.
-		".catalog-tree-row-category{flex-wrap:wrap;column-gap:8px;row-gap:5px}",
-		".catalog-tree-row-category>.catalog-node-name{flex:1 1 100%}",
+		".catalog-tree-row-folder,.catalog-tree-row-category{flex-wrap:wrap;column-gap:8px;row-gap:5px}",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the catalog screen's inline styles must contain %q", want)
@@ -284,7 +283,7 @@ func TestStructureLayout_CSSPinned(t *testing.T) {
 func TestCategoryWorkflowStatusBadge_UsesExactCategoryRow(t *testing.T) {
 	// The fixture mirrors the rendered table row: the name is a link in the first
 	// cell and the status is its own cell.
-	const body = `<a class="catalog-node-name catalog-category-link" href="/categories/1/workflow">Target category</a><span class="catalog-badge catalog-badge-neutral">Draft</span><a class="catalog-node-name catalog-category-link" href="/categories/2/workflow">Other category</a><span class="catalog-badge catalog-badge-ok">Workflow v1</span>`
+	const body = `<li class="catalog-tree-node catalog-tree-category" data-catalog-id="1"><a class="catalog-node-name catalog-category-link" href="/categories/1/workflow">Target category</a><span class="catalog-badge catalog-badge-neutral">Draft</span></li><li class="catalog-tree-node catalog-tree-category" data-catalog-id="2"><a class="catalog-node-name catalog-category-link" href="/categories/2/workflow">Other category</a><span class="catalog-badge catalog-badge-ok">Workflow v1</span></li>`
 
 	// The point of the test is that a broad substring must not be able to satisfy
 	// it: "Published" occurs elsewhere in the body, and the extraction must still
@@ -299,13 +298,15 @@ func TestCategoryWorkflowStatusBadge_UsesExactCategoryRow(t *testing.T) {
 
 func categoryStatusBadge(t *testing.T, body, categoryName string) string {
 	t.Helper()
-	// The catalog tree renders one category row per category: the name is the
-	// workflow link and the state is the badge that follows it. The extraction
-	// binds to THIS category's row, never to the first one on the page, so a broad
-	// substring cannot satisfy it.
-	pattern := `<a class="catalog-node-name catalog-category-link" href="/categories/\d+/workflow">` +
-		regexp.QuoteMeta(categoryName) + `</a>\s*<span class="catalog-badge catalog-badge-[a-z]+">([^<]+)</span>`
-	matches := regexp.MustCompile(pattern).FindAllStringSubmatch(body, -1)
+	// Bind the badge to the named tree row, never to another category.
+	rows := regexp.MustCompile(`(?s)<li class="catalog-tree-node catalog-tree-category"[^>]*>.*?</li>`).FindAllString(body, -1)
+	pattern := regexp.MustCompile(`<span class="catalog-badge catalog-badge-[a-z]+">([^<]+)</span>`)
+	var matches [][]string
+	for _, row := range rows {
+		if strings.Contains(row, `>`+categoryName+`</a>`) {
+			matches = append(matches, pattern.FindAllStringSubmatch(row, -1)...)
+		}
+	}
 	if len(matches) != 1 {
 		t.Fatalf("category %q must have exactly one status badge row, found %d in: %.2000s", categoryName, len(matches), body)
 	}
@@ -475,15 +476,15 @@ func TestCategoryWorkflowBuilder_PublishAndHTMXParity(t *testing.T) {
 		index := h.get(t, "/categories", false)
 		// The badge now names the version. A bare "Published" could not tell a
 		// category on its eleventh version from one on its first.
-		if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Workflow v1 · by Admin" {
-			t.Errorf("category %q status = %q, want Workflow v1 · by Admin", category.Name, got)
+		if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Workflow v1" {
+			t.Errorf("category %q status = %q, want Workflow v1", category.Name, got)
 		}
 
 		edited := builderDraft(t, "edited")
 		wantRedirect(t, h.postBuilder(t, path, builderForm("save", edited), false), http.StatusSeeOther, path)
 		// Both steps moved, so both canonical bytes differ by position; the badge
 		// counts differing STEPS, which is what a one-line label can state.
-		if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Workflow v1 · 2 unpublished changes · by Admin" {
+		if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Workflow v1 · 2 unpublished changes" {
 			t.Errorf("category %q status = %q, want the version plus 2 unpublished changes and the publisher", category.Name, got)
 		}
 	})
@@ -669,6 +670,10 @@ func buildingSteps() []bstep {
 // values that round-trip into the persisted canonical draft and re-render.
 func TestCategoryWorkflowBuilder_EditControlsSubmitCompleteOrderedValues(t *testing.T) {
 	h := newHarness(t)
+	desk, err := h.desks.Create(t.Context(), *h.admin, "Editable desk")
+	if err != nil {
+		t.Fatalf("create desk: %v", err)
+	}
 	category, err := h.categories.Create(t.Context(), "Editable")
 	if err != nil {
 		t.Fatalf("create category: %v", err)
@@ -677,7 +682,7 @@ func TestCategoryWorkflowBuilder_EditControlsSubmitCompleteOrderedValues(t *test
 
 	steps := []bstep{
 		{typ: "manual_task", manual: "first"},
-		{typ: "assign_to_desk", desk: "7", strategy: "least_loaded"},
+		{typ: "assign_to_desk", desk: strconv.FormatInt(desk.ID, 10), strategy: "least_loaded"},
 		{typ: "form", actor: "assignee", fields: []bfield{{key: "server", label: "Server", kind: "single_select", options: "eu\nus"}}},
 	}
 	wantRedirect(t, h.postBuilder(t, path, builderFieldForm("save", steps...), false), http.StatusSeeOther, path)
@@ -689,8 +694,8 @@ func TestCategoryWorkflowBuilder_EditControlsSubmitCompleteOrderedValues(t *test
 	if def[0].Type != domain.StepManualTask || def[0].ManualTask == nil || def[0].ManualTask.Instructions != "first" {
 		t.Errorf("step 0 not manual task 'first': %+v", def[0])
 	}
-	if def[1].Type != domain.StepAssignToDesk || def[1].AssignToDesk == nil || def[1].AssignToDesk.DeskID != 7 || def[1].AssignToDesk.Strategy != domain.StrategyLeastLoaded {
-		t.Errorf("step 1 not assign_to_desk desk 7 least_loaded: %+v", def[1])
+	if def[1].Type != domain.StepAssignToDesk || def[1].AssignToDesk == nil || def[1].AssignToDesk.DeskID != desk.ID || def[1].AssignToDesk.Strategy != domain.StrategyLeastLoaded {
+		t.Errorf("step 1 not assign_to_desk desk %d least_loaded: %+v", desk.ID, def[1])
 	}
 	if def[2].Type != domain.StepForm || def[2].Form == nil || def[2].Form.Actor != domain.FormActorAssignee || len(def[2].Form.Fields) != 1 {
 		t.Errorf("step 2 not form actor=assignee 1 field: %+v", def[2])
@@ -1313,6 +1318,10 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 	// payload, and clears the incompatible manual instructions.
 	t.Run("change_type initializes payload and clears incompatible", func(t *testing.T) {
 		h := newHarness(t)
+		desk, err := h.desks.Create(t.Context(), *h.admin, "Change type desk")
+		if err != nil {
+			t.Fatalf("create desk: %v", err)
+		}
 		category, err := h.categories.Create(t.Context(), "ChangeType")
 		if err != nil {
 			t.Fatalf("create: %v", err)
@@ -1322,13 +1331,13 @@ func TestCategoryWorkflowBuilder_ActionsWithIndexes(t *testing.T) {
 		f := builderFieldForm("change_type", buildingSteps()...)
 		f.Set("step_index", "0")
 		f.Set("step_0_type", "assign_to_desk")
-		f.Set("step_0_desk", "7")
+		f.Set("step_0_desk", strconv.FormatInt(desk.ID, 10))
 		f.Set("step_0_strategy", "least_loaded")
 		wantRedirect(t, h.postBuilder(t, path, f, false), http.StatusSeeOther, path)
 		def := h.persistedDefinition(t, path)
 		s0 := def[0]
-		if s0.Type != domain.StepAssignToDesk || s0.AssignToDesk == nil || s0.AssignToDesk.DeskID != 7 || s0.AssignToDesk.Strategy != domain.StrategyLeastLoaded {
-			t.Errorf("change_type step 0 = %+v, want assign_to_desk desk 7 least_loaded", s0)
+		if s0.Type != domain.StepAssignToDesk || s0.AssignToDesk == nil || s0.AssignToDesk.DeskID != desk.ID || s0.AssignToDesk.Strategy != domain.StrategyLeastLoaded {
+			t.Errorf("change_type step 0 = %+v, want assign_to_desk desk %d least_loaded", s0, desk.ID)
 		}
 		if s0.ManualTask != nil || s0.Form != nil {
 			t.Errorf("change_type must clear incompatible payloads, got manual/form set: %+v", s0)
@@ -1831,6 +1840,41 @@ func TestCategoryWorkflowBuilder_TypedAddStepTypeValidation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestCategoryWorkflowBuilder_AssignStepStartsWithNoDesk: the workflow steps,
+// not the category, decide the desk (issue #491, S1), so a new "send to a desk"
+// step starts with no desk even when desks exist.
+func TestCategoryWorkflowBuilder_AssignStepStartsWithNoDesk(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.desks.Create(t.Context(), *h.admin, "Identity"); err != nil {
+		t.Fatal(err)
+	}
+	category, err := h.categories.CreateWithDescription(t.Context(), "Password reset", "Locked out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/categories/" + strconv.FormatInt(category.ID, 10) + "/workflow"
+	f := builderFieldForm("add_step")
+	f.Set("add_step_type", "assign_to_desk")
+	wantRedirect(t, h.postBuilder(t, path, f, false), http.StatusSeeOther, path)
+	def := h.persistedDefinition(t, path)
+	if len(def) != 1 || def[0].AssignToDesk == nil || def[0].AssignToDesk.DeskID != 0 {
+		t.Fatalf("new assign step = %+v, want no desk preselected", def)
+	}
+	if def[0].AssignToDesk.Strategy != "" {
+		t.Errorf("strategy = %q, want it left for the admin to choose", def[0].AssignToDesk.Strategy)
+	}
+	// The editor must show that no desk is chosen: without an empty option the
+	// browser selects the first desk and the next save would store it unasked.
+	body := h.get(t, path+"?selected_step_index=0", false).Body.String()
+	select_ := regexp.MustCompile(`(?s)<select id="step_0_desk".*?</select>`).FindString(body)
+	if !strings.Contains(select_, `<option value="" selected>Choose a desk</option>`) {
+		t.Errorf("the desk select must start on an empty, selected \"Choose a desk\" option: %s", select_)
+	}
+	if strings.Count(select_, "selected") != 1 {
+		t.Errorf("only the empty option may be selected: %s", select_)
 	}
 }
 
@@ -3139,6 +3183,9 @@ func TestCategoryWorkflowBuilder_SurfacesStoredVersionFacts(t *testing.T) {
 	if !strings.Contains(saved, "data-workflow-draft-author") || !strings.Contains(saved, "Draft last edited by Admin") {
 		t.Errorf("saved builder must name the draft editor, got: %s", saved)
 	}
+	if got := categoryStatusBadge(t, h.get(t, "/categories", false).Body.String(), category.Name); got != "Draft" {
+		t.Errorf("category draft badge = %q, want Draft without attribution", got)
+	}
 	// A draft-only category has no live version to name yet.
 	if strings.Contains(saved, "data-workflow-version") {
 		t.Errorf("a draft-only builder must not render live version facts, got: %s", saved)
@@ -3146,15 +3193,13 @@ func TestCategoryWorkflowBuilder_SurfacesStoredVersionFacts(t *testing.T) {
 
 	wantRedirect(t, h.postBuilder(t, path, builderForm("publish", draft), false), http.StatusSeeOther, path)
 	published := h.get(t, path, false).Body.String()
-	// The builder names its live version with its own copy ("Published v1 · by
-	// Admin"); the catalog tree's row says "Workflow v1 · by Admin". Both compose
-	// from the same stored facts, and the row assertion below pins the tree's word.
+	// The builder keeps attribution; the catalog tree only names the version.
 	if !strings.Contains(published, "data-workflow-version") || !strings.Contains(published, "Published v1 · by Admin") {
 		t.Errorf("published builder must surface the live version and its publisher, got: %s", published)
 	}
 
 	index := h.get(t, "/categories", false)
-	if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Workflow v1 · by Admin" {
-		t.Errorf("category row = %q, want the live version attributed to its publisher", got)
+	if got := categoryStatusBadge(t, index.Body.String(), category.Name); got != "Workflow v1" {
+		t.Errorf("category row = %q, want the live version without attribution", got)
 	}
 }

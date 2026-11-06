@@ -14,7 +14,9 @@ type Category struct {
 	// suggestion engine and are never shown to a requester, so they are not
 	// presentation copy. The store persists them verbatim; the application layer
 	// owns the bound.
-	Keywords  string
-	DeskID    int64
+	Keywords string
+	// FolderID is the catalog folder the category sits in, nil at the top level
+	// (issue #484).
+	FolderID  *int64
 	CreatedAt time.Time
 }

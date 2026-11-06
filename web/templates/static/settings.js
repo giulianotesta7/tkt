@@ -77,6 +77,7 @@
       },
     );
     var activeZone = -1;
+    var stopZonePosition = null;
     zoneInput.setAttribute("role", "combobox");
     zoneInput.setAttribute("aria-autocomplete", "list");
     zoneInput.setAttribute("aria-controls", "timezone-options");
@@ -84,6 +85,8 @@
 
     function closeZones() {
       zonePopup.hidden = true;
+      if (stopZonePosition) stopZonePosition();
+      stopZonePosition = null;
       zoneInput.setAttribute("aria-expanded", "false");
       zoneInput.removeAttribute("aria-activedescendant");
       activeZone = -1;
@@ -107,6 +110,10 @@
       zoneEmpty.hidden = matches.length !== 0;
       zonePopup.hidden = false;
       zoneInput.setAttribute("aria-expanded", "true");
+      stopZonePosition = window.tktPositionMenu(zoneInput, zonePopup, {
+        matchWidth: true,
+        maxHeight: 240,
+      });
     }
     function chooseZone(option) {
       zoneInput.value = option.textContent;

@@ -1,0 +1,35 @@
+{{/*
+  The desks screen (issue #484, S15): desks are teams that work tickets, and
+  each category names the desk responsible for it, so desks are listed here
+  rather than inside the catalog tree. The drawer, the row menus and the delete
+  confirmation reuse the Categories screen's mechanics (categories.js), which
+  is why the swapped region keeps the categories-background id.
+*/}}
+{{define "desks_background"}}<div id="categories-background">
+  <header class="users-header command-header">
+    <div>
+      <h1 class="command-title">{{t "desks.title"}}</h1>
+      <p class="users-help">{{t "desks.subtitle"}}</p>
+    </div>
+    <div class="command-actions">
+      <a class="btn primary category-drawer-launcher" data-focus-key="new-desk" href="/desks/new" hx-get="/desks/new" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/desks/new">{{t "categories.new_desk"}}</a>
+    </div>
+  </header>
+{{if .Error}}<div class="error-banner" role="alert">{{.Error}}</div>{{end}}
+  <section class="users-list desks-list" aria-labelledby="desks-list-title">
+    <h2 id="desks-list-title" class="visually-hidden">{{t "desks.title"}}</h2>
+    <table>
+      <thead><tr><th scope="col">{{t "desks.col.desk"}}</th><th scope="col">{{t "desks.col.agents"}}</th><th scope="col">{{t "desks.col.categories"}}</th><th scope="col">{{t "desks.col.open"}}</th><th scope="col"><span class="visually-hidden">{{t "users.col_actions"}}</span></th></tr></thead>
+      <tbody>
+{{range .Rows}}        <tr data-desk-id="{{.ID}}">
+          <td class="desks-name" data-label="{{t "desks.col.desk"}}"><a class="category-drawer-launcher desks-launcher" data-focus-key="desk-{{.ID}}" href="/desks/{{.ID}}/edit" hx-get="/desks/{{.ID}}/edit" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/desks/{{.ID}}/edit"><strong>{{.Name}}</strong>{{if .Description}}<small>{{.Description}}</small>{{end}}</a></td>
+          <td class="desks-count" data-label="{{t "desks.col.agents"}}">{{if .NeedsAttention}}<span class="catalog-badge catalog-badge-none">{{t "categories.tree.no_agents"}}</span>{{else}}{{.AgentCount}}{{end}}</td>
+          <td class="desks-count" data-label="{{t "desks.col.categories"}}">{{.CategoryCount}}</td>
+          <td class="desks-count" data-label="{{t "desks.col.open"}}">{{.OpenTickets}}</td>
+          <td class="desks-actions"><div class="category-overflow catalog-row-menu"><button class="category-menu-button" type="button" data-category-menu data-focus-key="desk-actions-{{.ID}}" aria-controls="desk-menu-{{.ID}}" aria-expanded="false" aria-label="{{tf "categories.actions_for" .Name}}">⋯</button><div id="desk-menu-{{.ID}}" class="category-overflow-menu" role="menu" hidden><a class="category-drawer-launcher" role="menuitem" href="/desks/{{.ID}}/edit" hx-get="/desks/{{.ID}}/edit" hx-target="#category-drawer-host" hx-swap="outerHTML" hx-push-url="/desks/{{.ID}}/edit">{{t "desks.edit"}}</a><form method="post" action="/desks/{{.ID}}/delete" hx-post="/desks/{{.ID}}/delete" hx-target="#categories-background" hx-swap="outerHTML" role="none"><button class="category-menu-danger" role="menuitem" data-category-delete="desk" data-delete-confirm="{{tf "categories.delete_confirm.desk" .Name}}" type="submit">{{t "categories.delete_desk"}}</button></form></div></div></td>
+        </tr>
+{{else}}        <tr><td colspan="5"><p class="users-empty">{{t "desks.empty"}}</p></td></tr>
+{{end}}      </tbody>
+    </table>
+  </section>
+</div>{{end}}

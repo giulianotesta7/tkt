@@ -128,7 +128,7 @@ This list is not paginated (`next_cursor` is null).
 ```json
 {
   "items": [{
-    "id": 3, "name": "Network", "desk": "Support", "department": "IT",
+    "id": 3, "name": "Network", "folder_path": ["IT", "Support"],
     "requester_form": {
       "position": 1,
       "fields": [{"name":"location","label":"Location","type":"short_text","required":true,"options":[]}]
@@ -138,7 +138,7 @@ This list is not paginated (`next_cursor` is null).
 }
 ```
 
-`id` is an integer; names, desk, and department are strings. `requester_form` is null
+`id` is an integer; `name` is a string; `folder_path` is the array of folder names from the top level down to the category (empty at the top level). `requester_form` is null
 when absent, otherwise the **first requester form** in the published workflow. Its integer
 `position` is one-based. Each field has string `name`, `label`, and `type`, boolean `required`,
 and string-array `options`. Types are `short_text`, `long_text`, `checkbox`, and `single_select`.

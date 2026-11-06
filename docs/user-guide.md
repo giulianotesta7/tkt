@@ -33,6 +33,11 @@ A dot next to a title means something changed since you last opened that ticket.
 - **Attachments**: up to 5 files of 10 MB each. A file must really be the type its name claims;
   a text file renamed to `.png` is refused.
 
+Browse folders or search the catalog by category name, description, or folder path.
+The picker searches category names and folder paths. Catalog cards and suggestions show
+folder paths, not a category-owned desk: workflow steps determine responsibility.
+Without JavaScript, folder links, catalog search, and the native category selector still work.
+
 Category suggestions, when the instance offers them, are a hint: up to three, never applied for
 you, and the catalog stays available.
 

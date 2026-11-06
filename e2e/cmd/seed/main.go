@@ -101,15 +101,14 @@ func main() {
 	}
 	log.Printf("published workflow for category %d", cat.ID)
 
-	// Create a legacy Desk without a Department. It is the isolated fixture for
-	// the virtual Unassigned administration journey.
+	// A second desk with its own category, so journeys can tell two desks apart.
 	desk, err := deskSvc.Create(context.Background(), *root, "General Support")
 	if err != nil {
 		log.Fatalf("create desk: %v", err)
 	}
 	log.Printf("desk: %s (id=%d)", desk.Name, desk.ID)
 
-	legacyCategory, err := catSvc.CreateWithDescription(context.Background(), "Legacy Support Category", "Category under the legacy unassigned desk", desk.ID)
+	legacyCategory, err := catSvc.CreateWithDescription(context.Background(), "Legacy Support Category", "Category of the General Support desk")
 	if err != nil {
 		log.Fatalf("create legacy category: %v", err)
 	}
@@ -120,26 +119,14 @@ func main() {
 	// desk is staffed first, the workflow published, and the member removed: the
 	// only honest way to reach the state, and the one the requester's picker has
 	// to state instead of handing over a dead end.
-	//
-	// The desk lives in a real department on purpose: a desk with no department
-	// sits under the virtual Unassigned group, which the picker only reaches when
-	// no department exists at all, so the fixture would be unreachable there.
-	catalogSvc := application.NewCatalogService(store.CatalogStore(), store.CategoryStore(), clock)
-	departments, err := catalogSvc.ListDepartments(context.Background())
-	if err != nil {
-		log.Fatalf("list departments: %v", err)
-	}
-	if len(departments) == 0 {
-		log.Fatalf("no department to host the unrunnable fixture")
-	}
-	unstaffedDesk, err := catalogSvc.CreateDeskFor(context.Background(), *root, departments[0].ID, "Unstaffed Desk")
+	unstaffedDesk, err := deskSvc.Create(context.Background(), *root, "Unstaffed Desk")
 	if err != nil {
 		log.Fatalf("create unstaffed desk: %v", err)
 	}
 	if err := deskSvc.AddMember(context.Background(), *root, unstaffedDesk.ID, root.ID); err != nil {
 		log.Fatalf("staff unstaffed desk: %v", err)
 	}
-	unrunnableCategory, err := catSvc.CreateWithDescription(context.Background(), "Unrunnable Requests", "Published while staffed, then unstaffed", unstaffedDesk.ID)
+	unrunnableCategory, err := catSvc.CreateWithDescription(context.Background(), "Unrunnable Requests", "Published while staffed, then unstaffed")
 	if err != nil {
 		log.Fatalf("create unrunnable category: %v", err)
 	}

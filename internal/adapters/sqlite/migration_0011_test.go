@@ -31,8 +31,10 @@ func pre0011Migrations(t *testing.T) fstest.MapFS {
 	return out
 }
 
+// The departments 0011 introduced are dropped by 0045 (issue #484), so these
+// tests read the schema as it stood before that.
 func TestMigration0011CatalogCompatibility(t *testing.T) {
-	s := newTestDB(t)
+	s := openPre0045(t)
 	ctx := context.Background()
 	for _, table := range []string{"departments", "desks"} {
 		var n int
@@ -71,19 +73,22 @@ func TestMigration0011CatalogCompatibility(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT id FROM desks WHERE department_id=? AND name='General'`, departmentID).Scan(&deskID); err != nil {
 		t.Fatal(err)
 	}
-	cat := &domain.Category{Name: "Migrated-compatible", Description: "Legacy description", CreatedAt: time.Now().UTC()}
-	if err := s.CategoryStore().Create(ctx, cat); err != nil {
+	// Arrange the historical category shape without the current CategoryStore.
+	categoryID := seedCategory(t, s, "Migrated-compatible")
+	const legacyDescription = "Legacy description"
+	if _, err := s.db.ExecContext(ctx, `UPDATE categories SET description=? WHERE id=?`, legacyDescription, categoryID); err != nil {
 		t.Fatal(err)
 	}
-	if cat.DeskID != deskID {
-		t.Fatalf("default category desk = %d, want %d", cat.DeskID, deskID)
-	}
+	var categoryDeskID int64
 	var description string
-	if err := s.db.QueryRow(`SELECT description FROM categories WHERE id=?`, cat.ID).Scan(&description); err != nil {
+	if err := s.db.QueryRow(`SELECT desk_id, description FROM categories WHERE id=?`, categoryID).Scan(&categoryDeskID, &description); err != nil {
 		t.Fatal(err)
 	}
-	if description != cat.Description {
-		t.Fatalf("description = %q, want %q", description, cat.Description)
+	if categoryDeskID != deskID {
+		t.Fatalf("default category desk = %d, want %d", categoryDeskID, deskID)
+	}
+	if description != legacyDescription {
+		t.Fatalf("description = %q, want %q", description, legacyDescription)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO categories (name, desk_id, created_at) VALUES ('missing-desk', NULL, ?)`, time.Now().UTC().Format(time.RFC3339)); err == nil {
 		t.Fatal("category without a desk must be rejected")
@@ -129,10 +134,10 @@ func TestMigration0011UpgradePreservesLegacyIDsAndAssociations(t *testing.T) {
 		t.Fatalf("seed category workflow: %v", err)
 	}
 
-	if err := migrate(ctx, pre.db, migrationsFS); err != nil {
+	if err := migrate(ctx, pre.db, migrationsBefore(t, "0045_drop_departments.sql", false)); err != nil {
 		t.Fatalf("upgrade pre-0011 db: %v", err)
 	}
-	if err := migrate(ctx, pre.db, migrationsFS); err != nil {
+	if err := migrate(ctx, pre.db, migrationsBefore(t, "0045_drop_departments.sql", false)); err != nil {
 		t.Fatalf("rerun 0011 upgrade: %v", err)
 	}
 

@@ -166,6 +166,17 @@ func TestTranslatorAnswersShippedCopy(t *testing.T) {
 	}
 }
 
+func TestDeskDeleteRefusalReferences(t *testing.T) {
+	for locale, want := range map[string]string{
+		English: "This desk can't be deleted: it is referenced by workflows or assignment history.",
+		Spanish: "No se puede eliminar esta mesa: hay workflows o historial de asignaciones que hacen referencia a ella.",
+	} {
+		if got := T(locale, "desks.delete_in_use"); got != want {
+			t.Errorf("%s refusal = %q, want %q", locale, got, want)
+		}
+	}
+}
+
 // --- Reference coverage (S10) ---
 
 // templateKeyRef matches a catalogue key referenced from a template:
@@ -235,12 +246,12 @@ var nonKeyGoLiterals = map[string]bool{
 
 // prefixKeySuffixes pins the concrete suffixes each enum-driven template
 // prefix reference can produce. A prefix with one surviving arm (e.g.
-// categories.kind.department) would otherwise hide a deleted arm, so every
+// categories.kind.folder) would otherwise hide a deleted arm, so every
 // arm listed here must resolve even when the prefix still matches a sibling.
 var prefixKeySuffixes = map[string][]string{
-	"categories.kind.":             {"category", "department", "desk"},
-	"categories.drawer.help.":      {"category", "department", "desk"},
-	"categories.drawer.name_help.": {"category", "department", "desk"},
+	"categories.kind.":             {"category", "desk", "folder", "move"},
+	"categories.drawer.help.":      {"category", "desk", "folder", "move"},
+	"categories.drawer.name_help.": {"category", "desk", "folder"},
 	"ticket_metrics.group.":        {"agent", "desk"},
 	"ticket_metrics.group_by.":     {"priority", "category", "total"},
 }
@@ -624,7 +635,6 @@ var keylessValidationErrorAllowlist = map[string]string{
 	"internal/adapters/sqlite/workflow_uow.go|create plan missing ticket":                  "store recheck: the caller always supplies a planned ticket",
 	"internal/adapters/sqlite/workflow_uow.go|assignment target must be an agent or above": "store recheck after the service already validated the assignment target",
 	"internal/application/catalog_service.go|category is required":                         "programming guard: no request hands UpdateCategoryFor a nil category",
-	"internal/application/catalog_service.go|identifier is required":                       "internal id guard for catalog ids, never a user-authored value",
 	"internal/application/workflow_runner.go|workflow definition is empty":                 "definition guard: a published workflow always has at least one step",
 	"internal/application/workflow_runner.go|assign_to_desk requires config":               "definition guard: publish rejects an assign_to_desk step without config",
 	"internal/application/workflow_runner.go|unknown strategy":                             "definition guard: publish rejects an unknown assignment strategy",

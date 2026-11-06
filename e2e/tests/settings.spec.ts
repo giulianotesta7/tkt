@@ -17,6 +17,7 @@ import { assertCanonicalScreen, collectObservability, measureContrast } from "./
 import { createTicketViaUi, openPreferencesFromUserMenu } from "./helpers/navigation.js";
 import { createSuggestableCategory } from "./helpers/suggestions.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
+import { expectPopoverInView } from "./helpers/popover.js";
 
 // Fixture for consumers: the address is no longer editable in their forms.
 async function configureInstanceAddress(page: Page): Promise<void> {
@@ -385,6 +386,57 @@ test.describe("Settings", () => {
     const calendarBar = page.locator('form[action="/settings/calendar"] [data-settings-savebar]');
     await expect(zone).toHaveValue("UTC");
     await expect(zone).toHaveAttribute("role", "combobox");
+    // #495: the full suggestion list must escape the bottom of a phone screen.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const popup = page.locator("[data-timezone-popup]");
+    const posts: string[] = [];
+    const recordPost = (request: Request) => {
+      if (request.method() === "POST") posts.push(request.url());
+    };
+    page.on("request", recordPost);
+    await zone.click();
+    await expectPopoverInView(popup);
+    expect(
+      await popup.evaluate((element) => element.getBoundingClientRect().height),
+    ).toBeLessThanOrEqual(240);
+    expect(await popup.evaluate((element) => element.getBoundingClientRect().width)).toBe(
+      await zone.evaluate((element) => element.getBoundingClientRect().width),
+    );
+    await expect(zone).toBeFocused();
+    await expect(zone).toHaveAttribute("aria-expanded", "true");
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((value) => {
+        document.documentElement.dataset.theme = value;
+      }, theme);
+      await page.evaluate(() => window.scrollBy(0, 20));
+      await expectPopoverInView(popup);
+    }
+    await page.setViewportSize({ width: 390, height: 600 });
+    await expectPopoverInView(popup);
+    await zone.press("ArrowUp");
+    await expect(zone).toHaveAttribute("aria-activedescendant", /timezone-option-/);
+    await expectPopoverInView(popup);
+    await zone.press("Escape");
+    await expect(popup).toBeHidden();
+    await expect(popup).not.toHaveAttribute("style");
+    await expect(zone).toBeFocused();
+    await expect(zone).toHaveValue("UTC");
+    await expect(zone).toHaveAttribute("aria-expanded", "false");
+    await expect(zone).not.toHaveAttribute("aria-activedescendant");
+    await zone.fill("BUENOS AIRES");
+    await expectPopoverInView(popup);
+    await page.getByRole("option", { name: "America/Argentina/Buenos_Aires" }).click();
+    await expect(zone).toHaveValue("America/Argentina/Buenos_Aires");
+    await expect(zone).toBeFocused();
+    await expect(popup).toBeHidden();
+    await calendarBar.getByRole("button", { name: "Discard" }).click();
+    await expect(zone).toHaveValue("UTC");
+    expect(posts).toEqual([]);
+    page.off("request", recordPost);
+    await page.evaluate(() => {
+      delete document.documentElement.dataset.theme;
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
     await zone.fill("BUENOS AIRES");
     await expect(
       page.getByRole("option", { name: "America/Argentina/Buenos_Aires" }),

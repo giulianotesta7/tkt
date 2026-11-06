@@ -23,15 +23,9 @@ func TestDeskHandlersCreateListAndManageMembership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create desk through service: %v", err)
 	}
-	listed := httptest.NewRecorder()
-	mux.ServeHTTP(listed, deskRequest(http.MethodGet, "/desks", nil, *h.admin))
-	wantRedirect(t, listed, http.StatusSeeOther, "/categories")
-
-	create := httptest.NewRecorder()
-	mux.ServeHTTP(create, deskRequest(http.MethodPost, "/desks", url.Values{"name": {"Should not bypass Department"}}, *h.admin))
-	if create.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("POST /desks = %d, want method-not-allowed compatibility response", create.Code)
-	}
+	// GET /desks is its own screen again (issue #484); handlers_desks_page_test.go
+	// covers it. A no-script membership change returns to the desks page,
+	// where the desk drawer lives.
 
 	agent := seedUserRole(t, h.store, "Agent", "agent@tkt.test", domain.RoleAgent)
 	deskList, err := desks.List(context.Background(), *h.admin)
@@ -50,7 +44,7 @@ func TestDeskHandlersCreateListAndManageMembership(t *testing.T) {
 	}
 	member := httptest.NewRecorder()
 	mux.ServeHTTP(member, deskRequest(http.MethodPost, "/desks/"+itoa(desk.ID)+"/members", url.Values{"user_id": {itoa(agent.ID)}}, *h.admin))
-	wantRedirect(t, member, http.StatusSeeOther, "/categories?view=structure")
+	wantRedirect(t, member, http.StatusSeeOther, "/desks")
 	members, err := desks.ListMembers(context.Background(), *h.admin, desk.ID)
 	if err != nil || len(members) != 1 || members[0].ID != agent.ID {
 		t.Fatalf("stored membership = %+v, %v", members, err)

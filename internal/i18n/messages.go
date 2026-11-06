@@ -18,7 +18,7 @@
 // aria-label), and `auth.principles.simple.body` is the sentence under the
 // "Simple by design" heading. Keys are never reused across surfaces: a copy
 // change to one screen must not move another, and an admin-authored string
-// (a department, desk, or category name) never gets a key at all — content is
+// (a folder, desk, or category name) never gets a key at all — content is
 // not chrome.
 //
 // # Fallback

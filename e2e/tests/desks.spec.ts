@@ -1,9 +1,9 @@
 /**
- * Desk compatibility and membership journeys.
+ * Desk journeys.
  *
- * Desk administration is covered by the unified Categories/Structure screen;
- * this file owns only the legacy redirect and membership routes used by that
- * screen's drawer.
+ * Desks are teams with their own screen again (issue #484): /desks lists them
+ * and its drawer creates, renames and staffs a desk. The membership routes also
+ * serve the desk drawer the Categories screen still opens.
  */
 
 import { test, expect, type Route } from "@playwright/test";
@@ -12,7 +12,8 @@ import { loginAsSeeded, base } from "./helpers/auth.js";
 import { assertCanonicalScreen, collectObservability } from "./helpers/layout.js";
 import { assertHtmxSwap } from "./helpers/htmx.js";
 import { isHtmxPost } from "./helpers/save-feedback.js";
-import { catalogRowMenu, selectCatalogDesk } from "./helpers/navigation.js";
+import { catalogRowMenu, createDeskViaUi, selectCatalogDesk } from "./helpers/navigation.js";
+import { expectPopoverInView } from "./helpers/popover.js";
 
 test.describe("Desks", () => {
   test.beforeAll(async () => {
@@ -22,18 +23,79 @@ test.describe("Desks", () => {
     await stopServer();
   });
 
-  test("legacy GET redirects to the unified Categories screen", async ({ page }) => {
+  test("the desks screen lists desks and creates one in its drawer", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const obs = collectObservability(page);
     await loginAsSeeded(page);
     await page.goto(base() + "/desks");
-    await expect(page).toHaveURL(/\/categories$/);
-    await expect(page.locator("h1")).toHaveText("Catalog");
-    await expect(page.locator(".catalog-tree")).toBeVisible();
-    await expect(page.locator('[data-level="department"]').first()).toBeVisible();
-    await expect(page.locator('[data-level="desk"]').first()).toBeVisible();
-    await expect(page.locator('[data-level="category"]').first()).toBeVisible();
+    await expect(page).toHaveURL(/\/desks$/);
+    await expect(page.locator("h1")).toHaveText("Desks");
+    await expect(page.getByRole("link", { name: "Desks", exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    const general = page
+      .locator("tr[data-desk-id]")
+      .filter({ has: page.getByRole("link", { name: "General", exact: true }) });
+    await expect(general).toHaveCount(1);
+
+    const name = "Facilities " + Date.now().toString(36).slice(2, 7);
+    await page.getByRole("link", { name: "New desk" }).click();
+    const drawer = page.locator(".category-drawer");
+    await expect(drawer).toBeVisible();
+    await drawer.getByLabel(/^name$/i).fill(name);
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await drawer.getByRole("button", { name: /create desk/i }).click();
+      },
+      {
+        endpoint: (url) => new URL(url).pathname === "/desks",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#categories-background",
+        expectedUrl: /\/desks$/,
+      },
+    );
+    const created = page
+      .locator("tr[data-desk-id]")
+      .filter({ has: page.getByRole("link", { name, exact: true }) });
+    await expect(created).toHaveCount(1);
+    await expect(created.locator("td").nth(1)).toHaveText("No agents");
+    await expect(page.locator(".category-drawer")).toHaveCount(0);
+    expect(obs.pageErrors).toEqual([]);
   });
 
-  test("desk membership add and remove uses the unified drawer context", async ({ page }) => {
+  test("last desk row menu escapes the rounded table", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const obs = collectObservability(page);
+    await loginAsSeeded(page);
+    let id = "";
+    for (let index = 0; index < 5; index++) {
+      id = await createDeskViaUi(page, `ZZ Overlay desk ${index}`);
+    }
+    const row = page.locator(`tr[data-desk-id="${id}"]`);
+    const trigger = catalogRowMenu(row);
+    const menu = row.getByRole("menu");
+    await expect(page.locator(".desks-list")).toHaveCSS("overflow", "hidden");
+    await trigger.click();
+    await expectPopoverInView(menu);
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await trigger.press("ArrowDown");
+    await expect(menu.getByRole("menuitem").first()).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(obs).toEqual({
+      consoleErrors: [],
+      pageErrors: [],
+      failedRequests: [],
+      failedResponses: [],
+    });
+  });
+
+  test("desk membership add and remove stays in the desk drawer", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const obs = collectObservability(page);
     await loginAsSeeded(page);
@@ -60,7 +122,7 @@ test.describe("Desks", () => {
     await expect(page).toHaveURL(/\/users$/);
 
     const deskID = await selectCatalogDesk(page, "General Support");
-    const deskRow = page.locator(`[data-level="desk"][data-catalog-id="${deskID}"]`);
+    const deskRow = page.locator(`tr[data-desk-id="${deskID}"]`);
     await catalogRowMenu(deskRow).click();
     await deskRow
       .locator(".category-overflow-menu:not([hidden])")
@@ -186,7 +248,6 @@ test.describe("Desks", () => {
     test.setTimeout(60_000);
     await loginAsSeeded(page);
     let deskID = "";
-    let deskDepartmentID = "";
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 844 });
 
@@ -209,16 +270,8 @@ test.describe("Desks", () => {
       await page.getByRole("button", { name: /save changes/i }).click();
       await expect(page).toHaveURL(/\/users$/);
 
-      if (!deskID) {
-        deskID = await selectCatalogDesk(page, "General Support");
-        deskDepartmentID = new URL(page.url()).searchParams.get("department_id") ?? "";
-        if (!deskDepartmentID)
-          throw new Error(`General Support department missing at ${page.url()}`);
-      }
-      await page.goto(
-        base() +
-          `/categories/desks/${deskID}/edit?view=structure&department_id=${deskDepartmentID}&desk_id=${deskID}`,
-      );
+      if (!deskID) deskID = await selectCatalogDesk(page, "General Support");
+      await page.goto(base() + `/desks/${deskID}/edit`);
       const drawer = page.getByRole("dialog", { name: /Edit desk/i });
       await expect(drawer).toBeVisible();
       const addMember = drawer.locator(".desk-add-member");

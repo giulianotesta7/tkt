@@ -17,6 +17,32 @@ var _ application.TicketMetricsStore = (*ticketMetricsStore)(nil)
 
 func newTicketMetricsStore(db *sql.DB) *ticketMetricsStore { return &ticketMetricsStore{db: db} }
 
+// responsibilityPendingSteps and responsibilityDeskID are shared by metrics and
+// catalog counts. Callers provide tickets t and LEFT JOIN pending_steps ps.
+const responsibilityPendingSteps = `pending_steps AS (
+	SELECT tr.ticket_id,
+	CASE WHEN json_valid(w.steps_json) THEN
+		CASE WHEN json_type(w.steps_json, '$[' || tr.current_step_index || ']') = 'object'
+		THEN json_extract(w.steps_json, '$[' || tr.current_step_index || ']')
+		ELSE '{}' END
+	ELSE '{}' END AS step
+	FROM ticket_workflow_runs tr
+	JOIN tickets pinned ON pinned.id = tr.ticket_id
+	JOIN workflow_versions w ON w.id = pinned.workflow_version_id
+	WHERE tr.status = 'active' AND typeof(tr.current_step_index) = 'integer'
+	AND tr.current_step_index >= 0
+)`
+
+const responsibilityDeskID = `COALESCE(
+	CASE WHEN json_extract(ps.step, '$.type') = 'assign_to_desk'
+		AND json_extract(ps.step, '$.assign_to_desk.strategy') = 'claim'
+		AND json_type(ps.step, '$.assign_to_desk.desk_id') = 'integer'
+		AND json_extract(ps.step, '$.assign_to_desk.desk_id') > 0
+	THEN json_extract(ps.step, '$.assign_to_desk.desk_id') END,
+	(SELECT assignment.desk_id FROM audit_events assignment
+	 WHERE assignment.ticket_id = t.id AND assignment.action = 'workflow_assignment'
+	 ORDER BY assignment.created_at DESC, assignment.id DESC LIMIT 1))`
+
 // ticketMetricsQuery builds the statement and its argument list for the
 // administrative metrics read. It is package-level so the numbered migration
 // test can EXPLAIN the exact statement the store runs instead of a replica
@@ -35,7 +61,7 @@ func ticketMetricsQuery(f application.TicketMetricsFilter) (string, []any) {
 	where := []string{"(resolved.ticket_id IS NOT NULL OR t.state IN ('new', 'in_progress') OR (t.created_at >= ? AND t.created_at < ?))"}
 	args := []any{formatTime(f.Start), formatTime(f.End), formatTime(f.Start), formatTime(f.End)}
 	if f.DeskID != nil {
-		where = append(where, "c.desk_id = ?")
+		where = append(where, "d.id = ?")
 		args = append(args, *f.DeskID)
 	}
 	if f.AgentID != nil {
@@ -49,9 +75,9 @@ func ticketMetricsQuery(f application.TicketMetricsFilter) (string, []any) {
 			FROM audit_events a
 			WHERE a.action = 'transition' AND a.field = 'state' AND a.to_value = 'resolved'
 			AND a.created_at >= ? AND a.created_at < ?
-		)
+		), ` + responsibilityPendingSteps + `
 		SELECT t.id, t.created_at, resolved.created_at, t.state,
-		c.desk_id, COALESCE(d.name, ''), t.user_id, COALESCE(u.name, ''),
+		d.id, COALESCE(d.name, ''), t.user_id, COALESCE(u.name, ''),
 		t.priority, c.name,
 		s.ticket_id, ` + ticketSLAColumns + `,
 		(SELECT MIN(cm.created_at) FROM comments cm
@@ -60,7 +86,8 @@ func ticketMetricsQuery(f application.TicketMetricsFilter) (string, []any) {
 			WHERE ae.ticket_id = t.id AND ` + slaFirstResolvedWhere + `)
 		FROM tickets t
 		JOIN categories c ON c.id = t.category_id
-		LEFT JOIN desks d ON d.id = c.desk_id
+		LEFT JOIN pending_steps ps ON ps.ticket_id = t.id
+		LEFT JOIN desks d ON d.id = ` + responsibilityDeskID + `
 		LEFT JOIN users u ON u.id = t.user_id
 		LEFT JOIN ticket_sla s ON s.ticket_id = t.id
 		LEFT JOIN resolved ON resolved.ticket_id = t.id AND resolved.rn = 1
@@ -71,8 +98,11 @@ func ticketMetricsQuery(f application.TicketMetricsFilter) (string, []any) {
 
 // TicketMetrics selects a ticket once. The window function chooses the final
 // audited transition to resolved in the requested interval using timestamp/id;
-// current ticket, category and assignee joins deliberately provide current
-// attribution. Pending records are included regardless of the selected period.
+// desk responsibility comes from the active pinned claim, otherwise the latest
+// workflow assignment (including a NULL desk, never an older fallback). The
+// correlated audit lookup reuses idx_audit_ticket in reverse timestamp/id order.
+// Category identity and agent attribution remain current. Pending records are
+// included regardless of the selected period.
 func (s *ticketMetricsStore) TicketMetrics(ctx context.Context, f application.TicketMetricsFilter) ([]application.TicketMetricsRecord, error) {
 	// f.End is already the exclusive UTC boundary produced by the metrics filter
 	// normalizer, so the window is used as-is.

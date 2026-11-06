@@ -15,25 +15,22 @@ import (
 // against the real harness, database and templates.
 
 // keywordsFormValues builds the category drawer form with a keywords value.
-func keywordsFormValues(t *testing.T, name, keywords string, departmentID, deskID int64) url.Values {
+func keywordsFormValues(t *testing.T, name, keywords string, deskID int64) url.Values {
 	t.Helper()
 	return url.Values{
-		"name":          {name},
-		"description":   {"Requests about " + name},
-		"keywords":      {keywords},
-		"department_id": {strconv.FormatInt(departmentID, 10)},
-		"desk_id":       {strconv.FormatInt(deskID, 10)},
+		"name":        {name},
+		"description": {"Requests about " + name},
+		"keywords":    {keywords},
+		"desk_id":     {strconv.FormatInt(deskID, 10)},
 	}
 }
 
 // TestCategoryDrawerOffersSuggestionKeywords proves the drawer renders the field
-// with the approved copy, for a category only: a department and a desk have no
-// keywords.
+// with the approved copy, for a category only: a folder has no keywords.
 func TestCategoryDrawerOffersSuggestionKeywords(t *testing.T) {
 	h := newHarness(t)
-	departmentID, _ := h.seededDesk(t)
 
-	rec := h.get(t, "/categories/new?view=structure", true)
+	rec := h.get(t, "/categories/new", true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
@@ -48,10 +45,7 @@ func TestCategoryDrawerOffersSuggestionKeywords(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{
-		"/categories/departments/new?view=structure",
-		"/categories/desks/new?view=structure&department_id=" + strconv.FormatInt(departmentID, 10),
-	} {
+	for _, path := range []string{"/categories/folders/new"} {
 		rec := h.get(t, path, true)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s status = %d, want 200", path, rec.Code)
@@ -67,9 +61,9 @@ func TestCategoryDrawerOffersSuggestionKeywords(t *testing.T) {
 // replaces them.
 func TestCategoryKeywordsAreStoredShownAndUpdated(t *testing.T) {
 	h := newHarness(t)
-	departmentID, deskID := h.seededDesk(t)
+	deskID := h.seededDesk(t)
 
-	create := h.postForm(t, "/categories", keywordsFormValues(t, "Printers", " impresora, tóner ", departmentID, deskID), false)
+	create := h.postForm(t, "/categories", keywordsFormValues(t, "Printers", " impresora, tóner ", deskID), false)
 	wantRedirect(t, create, http.StatusSeeOther, "/categories")
 
 	created, ok := categoryNamed(t, h, "Printers")
@@ -80,7 +74,7 @@ func TestCategoryKeywordsAreStoredShownAndUpdated(t *testing.T) {
 		t.Fatalf("stored keywords = %q, want them trimmed and otherwise as typed", created.Keywords)
 	}
 
-	edit := h.get(t, "/categories/"+strconv.FormatInt(created.ID, 10)+"/edit?view=structure", true)
+	edit := h.get(t, "/categories/"+strconv.FormatInt(created.ID, 10)+"/edit", true)
 	if edit.Code != http.StatusOK {
 		t.Fatalf("edit status = %d, want 200", edit.Code)
 	}
@@ -89,7 +83,7 @@ func TestCategoryKeywordsAreStoredShownAndUpdated(t *testing.T) {
 	}
 
 	update := h.postForm(t, "/categories/"+strconv.FormatInt(created.ID, 10)+"/edit",
-		keywordsFormValues(t, "Printers", "impresora, escáner", departmentID, deskID), false)
+		keywordsFormValues(t, "Printers", "impresora, escáner", deskID), false)
 	wantRedirect(t, update, http.StatusSeeOther, "/categories")
 	updated, err := h.categories.GetByID(t.Context(), created.ID)
 	if err != nil {
@@ -104,9 +98,9 @@ func TestCategoryKeywordsAreStoredShownAndUpdated(t *testing.T) {
 // administrator who does not use keywords still saves the category.
 func TestCategoryKeywordsBlankIsAccepted(t *testing.T) {
 	h := newHarness(t)
-	departmentID, deskID := h.seededDesk(t)
+	deskID := h.seededDesk(t)
 
-	rec := h.postForm(t, "/categories", keywordsFormValues(t, "Printers", "   ", departmentID, deskID), false)
+	rec := h.postForm(t, "/categories", keywordsFormValues(t, "Printers", "   ", deskID), false)
 	wantRedirect(t, rec, http.StatusSeeOther, "/categories")
 
 	created, ok := categoryNamed(t, h, "Printers")
@@ -124,10 +118,10 @@ func TestCategoryKeywordsBlankIsAccepted(t *testing.T) {
 // bypass.
 func TestCategoryKeywordsRefusalKeepsTheSubmittedValue(t *testing.T) {
 	h := newHarness(t)
-	departmentID, deskID := h.seededDesk(t)
+	deskID := h.seededDesk(t)
 
 	tooLong := strings.Repeat("a", 501)
-	rec := h.postForm(t, "/categories", keywordsFormValues(t, "Printers", tooLong, departmentID, deskID), false)
+	rec := h.postForm(t, "/categories", keywordsFormValues(t, "Printers", tooLong, deskID), false)
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422", rec.Code)
