@@ -596,8 +596,8 @@ func (s *TicketService) ConfirmResolution(ctx context.Context, actor domain.User
 // transition, never a workflow operation (no plan, no cursor/step/answer
 // mutation, actor is the requester, not "workflow"). An already-manual ticket
 // is a plain resolved -> in_progress reopen; resolved_at is cleared by the
-// domain transition (ticket-management delta). A non-resolved state is
-// rejected by the state machine with no write.
+// domain transition (ticket-management delta). Any state other than resolved
+// is refused as an invalid transition with no write (issue #494).
 func (s *TicketService) RejectResolution(ctx context.Context, actor domain.User, ticketID int64) (*domain.Ticket, error) {
 	t, err := s.tickets.GetByID(ctx, ticketID, scopedQuery(ctx, actor, TicketQuery{}))
 	if err != nil {
@@ -605,6 +605,12 @@ func (s *TicketService) RejectResolution(ctx context.Context, actor domain.User,
 	}
 	if !isTicketRequester(actor, t) {
 		return nil, domain.NewForbiddenError(ErrMsgNotTicketRequester)
+	}
+	// Only a resolution can be rejected (issue #494). The state machine alone
+	// is not enough: it also admits new -> in_progress and the closed reopen,
+	// and either would reopen the ticket and detach its workflow below.
+	if t.State != domain.StateResolved {
+		return nil, domain.NewInvalidTransitionError(t.State, domain.StateInProgress)
 	}
 	event, err := t.Transition(domain.StateInProgress, "", s.clock.Now())
 	if err != nil {

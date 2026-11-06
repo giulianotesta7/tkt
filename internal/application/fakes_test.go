@@ -2799,9 +2799,9 @@ type fakeVisitEntry struct {
 //     MAX(seen, new) upsert would be re-implemented rather than exercised —
 //     the fake's RecordVisit overwrites, and the real store's monotonic
 //     upsert has its own adapter test;
-//   - notifications are a flat list the test appends to, and RecordVisit
-//     stamps read_at on the reader's unread rows, mirroring the store's
-//     same-transaction second statement.
+//   - notifications are a flat list the test appends to, numbered by append
+//     order, and RecordVisit stamps read_at on the reader's unread rows up to
+//     the mark, mirroring the store's same-transaction second statement.
 type fakeTicketVisitStore struct {
 	audits        map[int64][]fakeVisitEntry
 	comments      map[int64][]fakeVisitEntry
@@ -2855,7 +2855,7 @@ func (f *fakeTicketVisitStore) addComment(ticketID, actorID int64, internal bool
 
 // addNotification appends one unread notification about the ticket.
 func (f *fakeTicketVisitStore) addNotification(userID, ticketID int64) {
-	f.notifications = append(f.notifications, &domain.Notification{UserID: userID, TicketID: ticketID})
+	f.notifications = append(f.notifications, &domain.Notification{ID: int64(len(f.notifications) + 1), UserID: userID, TicketID: ticketID})
 }
 
 func (f *fakeTicketVisitStore) Mark(_ context.Context, ticketID int64) (application.VisitMark, error) {
@@ -2870,6 +2870,11 @@ func (f *fakeTicketVisitStore) Mark(_ context.Context, ticketID int64) (applicat
 	for _, e := range f.comments[ticketID] {
 		mark.CommentID = e.id
 	}
+	for _, n := range f.notifications {
+		if n.TicketID == ticketID {
+			mark.NotificationID = n.ID
+		}
+	}
 	return mark, nil
 }
 
@@ -2883,7 +2888,7 @@ func (f *fakeTicketVisitStore) RecordVisit(_ context.Context, userID, ticketID i
 	}
 	f.marks[userID][ticketID] = mark
 	for _, n := range f.notifications {
-		if n.UserID == userID && n.TicketID == ticketID && n.ReadAt == nil {
+		if n.UserID == userID && n.TicketID == ticketID && n.ID <= mark.NotificationID && n.ReadAt == nil {
 			read := at
 			n.ReadAt = &read
 		}
