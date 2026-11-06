@@ -341,10 +341,18 @@
 .categories-root .catalog-attention-chip{height:36px;padding:0 14px;border-radius:8px;font-size:13px}
 .categories-root .catalog-structure-title{margin:0 0 16px;color:var(--ink-strong);font-size:17px;font-weight:600}
 .categories-root .catalog-tree{border:0;border-top:1px solid var(--line);border-radius:0;padding:0;overflow:visible}
-.categories-root .catalog-row-actions{display:flex;align-items:center;gap:2px;opacity:0;flex:none}
-.categories-root .catalog-tree-row:hover .catalog-row-actions,.categories-root .catalog-tree-row:focus-within .catalog-row-actions,.categories-root [role=treeitem]:focus > .catalog-tree-row .catalog-row-actions,.categories-root [role=treeitem][aria-selected=true] > .catalog-tree-row .catalog-row-actions{opacity:1}
+/* A row's actions menu stays visible at rest in faint ink so every row shows
+   where its actions live; its other buttons appear on hover, focus or selection. */
+.categories-root .catalog-row-actions{display:flex;align-items:center;gap:2px;flex:none}
+.categories-root .catalog-row-actions > .category-menu-button{opacity:0}
+.categories-root .catalog-tree .catalog-row-menu > .category-menu-button{color:var(--faint)}
+.categories-root .catalog-tree-row:hover .catalog-row-actions > .category-menu-button,.categories-root .catalog-tree-row:focus-within .catalog-row-actions > .category-menu-button,.categories-root [role=treeitem]:focus > .catalog-tree-row .catalog-row-actions > .category-menu-button,.categories-root [role=treeitem][aria-selected=true] > .catalog-tree-row .catalog-row-actions > .category-menu-button{opacity:1}
+.categories-root .catalog-tree-row:hover .catalog-row-menu > .category-menu-button,.categories-root .catalog-tree-row:focus-within .catalog-row-menu > .category-menu-button,.categories-root [role=treeitem]:focus > .catalog-tree-row .catalog-row-menu > .category-menu-button,.categories-root [role=treeitem][aria-selected=true] > .catalog-tree-row .catalog-row-menu > .category-menu-button{color:var(--muted)}
 .categories-root .catalog-row-actions .category-menu-button{width:28px;height:28px;min-height:28px;padding:0}
-@media (hover:none){.categories-root .catalog-row-actions{opacity:1}}
+/* The tree's own hover fill, shared by its buttons, row menus and context menu. */
+.categories-root .catalog-tree .catalog-row-actions .category-menu-button:hover{background:var(--hover);color:var(--ink-strong)}
+.categories-root .catalog-tree .category-overflow-menu a:hover,.categories-root .catalog-tree .category-overflow-menu button:hover{background:var(--hover)}
+@media (hover:none){.categories-root .catalog-row-actions > .category-menu-button{opacity:1}.categories-root .catalog-tree .catalog-row-menu > .category-menu-button{color:var(--muted)}}
 .categories-root .catalog-add-menu{position:relative}
 .categories-root [role=treeitem]:focus{outline:none}
 .categories-root [role=treeitem]:focus-visible > .catalog-tree-row{outline:2px solid var(--accent);outline-offset:-2px}
@@ -368,7 +376,9 @@
 .categories-root .catalog-create-popover .catalog-inline-hint,.categories-root .catalog-create-popover .catalog-inline-error{position:static;flex-basis:100%;max-width:none;padding:0;border:0;box-shadow:none}
 .categories-root .catalog-inline-hint{color:var(--muted);font-size:12px}
 .categories-root .catalog-create-destination{flex-basis:100%;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
-.categories-root .catalog-create-destination button{border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--muted);min-width:24px;min-height:24px;padding:0 6px;line-height:1}
+.categories-root .catalog-create-destination button{display:inline-grid;place-items:center;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--muted);min-width:24px;min-height:24px;padding:0 6px;line-height:1}
+.categories-root .catalog-create-destination button svg{width:12px;height:12px}
+.categories-root .catalog-create-destination button[hidden]{display:none}
 .categories-root .catalog-inline-error{flex-basis:100%;color:var(--red);font-size:12px}
 .categories-root .catalog-toast-action{color:inherit;background:transparent;border:0;text-decoration:underline;cursor:pointer;font:inherit}
 .categories-root .catalog-toast{position:fixed;right:24px;bottom:24px;z-index:1000;background:var(--rail);color:var(--rail-ink);border-radius:8px;padding:12px 16px;box-shadow:var(--elevation-raised);display:flex;gap:8px;align-items:center}
@@ -384,13 +394,14 @@
 }
 @media(max-width:1099px),(pointer:coarse){
 .categories-root .catalog-node-main{flex:1 1 0;min-width:0}
-.categories-root .catalog-row-actions{opacity:1}
+.categories-root .catalog-row-actions > .category-menu-button{opacity:1}
+.categories-root .catalog-tree .catalog-row-menu > .category-menu-button{color:var(--muted)}
 .categories-root [data-catalog-disclosure],.categories-root .catalog-disclosure-empty{flex:0 0 44px;width:44px;height:44px}
 .categories-root .catalog-row-actions .category-menu-button{width:44px;min-width:44px;height:44px;min-height:44px}
 .categories-root .catalog-create-destination button{min-width:44px;min-height:44px}
 }
 .categories-root .catalog-node-name{font-weight:600}
-.categories-root .catalog-drag-grip{visibility:hidden;cursor:grab;color:var(--muted);user-select:none;touch-action:none}
+.categories-root .catalog-drag-grip{display:inline-flex;align-items:center;visibility:hidden;cursor:grab;color:var(--muted);user-select:none;touch-action:none}
 .categories-root .catalog-drag-ghost{position:fixed;z-index:1001;pointer-events:none;padding:8px 12px;background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);border-radius:8px;box-shadow:var(--elevation-raised)}
 .categories-root .catalog-tree-row:hover .catalog-drag-grip,.categories-root [role=treeitem]:focus > .catalog-tree-row .catalog-drag-grip,.categories-root .catalog-tree-row:focus-within .catalog-drag-grip{visibility:visible}
 @media (hover:none){.categories-root .catalog-drag-grip{visibility:visible}}
@@ -399,6 +410,8 @@
 .categories-root .catalog-drop-invalid{background:var(--red-soft);cursor:not-allowed}
 .categories-root .catalog-drop-reason{color:var(--red);font-size:12px;padding:4px 12px;pointer-events:none}
 .categories-root .catalog-tree{position:relative;min-height:50vh;padding-bottom:80px;box-sizing:border-box}
+/* The blank drop space below the rows has nothing to receive in an empty tree. */
+.categories-root .catalog-tree:has(> .category-empty){min-height:0;padding-bottom:0}
 .categories-root .catalog-details{padding:20px 24px 20px 60px;border-bottom:1px solid var(--line);background:var(--hover);color:var(--ink)}
 .categories-root .catalog-details form{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:flex-start}
 .categories-root .catalog-details .users-field{flex:1 1 240px;min-width:0}
@@ -415,11 +428,12 @@
 .categories-root .catalog-details-popover .catalog-details-links{margin:4px 0 0}
 .categories-root .catalog-context-menu{position:fixed;z-index:50;display:grid;gap:2px;width:196px;max-height:100vh;overflow-y:auto;padding:7px;border:1px solid var(--line);border-radius:8px;background:var(--card);box-shadow:var(--elevation-raised)}
 .categories-root .catalog-context-menu a,.categories-root .catalog-context-menu button{display:block;width:100%;padding:8px 9px;border:0;border-radius:8px;background:transparent;color:var(--ink-soft);font:inherit;text-align:left;text-decoration:none;cursor:pointer}
-.categories-root .catalog-context-menu a:hover,.categories-root .catalog-context-menu button:hover,.categories-root .catalog-context-menu :focus-visible{background:var(--gray-soft)}
+.categories-root .catalog-context-menu a:hover,.categories-root .catalog-context-menu button:hover,.categories-root .catalog-context-menu :focus-visible{background:var(--hover)}
 .categories-root .catalog-context-menu .category-menu-danger{color:var(--red)}
 .categories-root .catalog-context-menu [aria-disabled="true"]{color:var(--muted);cursor:not-allowed}
 @media(max-width:600px){.categories-root .catalog-details{padding:16px}}
-.categories-root .catalog-rename-input{display:block;box-sizing:border-box;width:min(100%,360px);height:20px;padding:0 4px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
+/* The small control height; the negative margin keeps a compact row from growing. */
+.categories-root .catalog-rename-input{display:block;box-sizing:border-box;width:min(100%,360px);height:30px;margin:-1px 0;padding:0 8px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px}
 .categories-root .catalog-rename-input[aria-invalid=true]{border-color:var(--red)}
 .categories-root .catalog-node-main > .catalog-inline-error:not([hidden]){display:block}
 .categories-root .catalog-rename-error,.categories-root .catalog-drop-reason{position:fixed;z-index:50;box-sizing:border-box;width:max-content;max-width:min(320px,calc(100vw - 16px));padding:8px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);box-shadow:var(--elevation-raised)}
@@ -500,7 +514,7 @@
 }
 
 .categories-root .catalog-row-menu .category-overflow-menu{width:max-content;min-width:176px;max-width:calc(100vw - 16px)}
-.categories-root [aria-keyshortcuts]{display:flex;align-items:baseline;justify-content:space-between;gap:16px;white-space:nowrap}
+.categories-root [aria-keyshortcuts],.categories-root .catalog-context-menu [aria-keyshortcuts]{display:flex;align-items:baseline;justify-content:space-between;gap:16px;white-space:nowrap}
 .categories-root [aria-keyshortcuts][hidden]{display:none}
 .categories-root .catalog-key-hint{margin-left:auto;color:var(--muted);font:inherit;font-size:.78rem}
 @media (hover:none),(pointer:coarse){.categories-root .catalog-key-hint{display:none}}
