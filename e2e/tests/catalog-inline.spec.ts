@@ -955,10 +955,14 @@ test.describe("inline catalog moves", () => {
     const contextMove = context.getByRole("menuitem", { name: "Move to…", exact: true });
     await expect(contextMove).not.toHaveAttribute("aria-keyshortcuts");
     await expect(contextMove.locator("kbd")).toHaveCount(0);
-    await expect(context.getByRole("menuitem", { name: "Cut", exact: true })).toHaveAttribute(
-      "aria-keyshortcuts",
-      "Control+X",
-    );
+    const contextCut = context.getByRole("menuitem", { name: "Cut", exact: true });
+    await expect(contextCut).toHaveAttribute("aria-keyshortcuts", "Control+X");
+    // As in the row menu, the hint sits apart at the item's end, not glued to its label.
+    const [cutBox, kbdBox] = await Promise.all([
+      contextCut.boundingBox(),
+      contextCut.locator("kbd").boundingBox(),
+    ]);
+    expect(cutBox!.x + cutBox!.width - (kbdBox!.x + kbdBox!.width)).toBeLessThanOrEqual(12);
     await page.keyboard.press("Escape");
   });
 
@@ -1156,6 +1160,104 @@ test.describe("inline catalog moves", () => {
         .getByRole("button", { name: "Folder", exact: true }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
+  });
+  test("row actions stay discoverable with SVG icons, one Properties name and the tree hover", async ({
+    page,
+  }) => {
+    const obs = collectObservability(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await loginAsSeeded(page);
+    const id = await createFolderViaUi(page, "Discoverable folder");
+    const child = await createFolderViaUi(page, "Discoverable child", id);
+    await page.goto(base() + "/categories");
+    // Select a third row so neither target is selected.
+    await row(page, "folder", child).focus();
+    await expect(row(page, "folder", child)).toHaveAttribute("aria-selected", "true");
+    const folder = row(page, "folder", id);
+    const category = page.locator('[role="treeitem"][data-level="category"][data-name="General"]');
+    // A probe resolves a token to the computed colour a rule would produce.
+    const token = (name: string) =>
+      page.evaluate((value) => {
+        const probe = document.createElement("div");
+        probe.style.color = `var(${value})`;
+        probe.style.backgroundColor = `var(${value})`;
+        document.querySelector(".categories-root")!.append(probe);
+        const { color } = getComputedStyle(probe);
+        probe.remove();
+        return color;
+      }, name);
+    const shown = (locator: import("@playwright/test").Locator) =>
+      locator.evaluate((element) => {
+        let opacity = 1;
+        for (let node: Element | null = element; node; node = node.parentElement)
+          opacity *= Number(getComputedStyle(node).opacity);
+        return opacity;
+      });
+    for (const target of [folder, category]) {
+      await page.locator("#category-search").focus();
+      await page.mouse.move(0, 0);
+      await expect(target).toHaveAttribute("aria-selected", "false");
+      const line = target.locator(":scope > .catalog-tree-row");
+      const trigger = line.locator("[data-category-menu]");
+      // At rest the row's ⋯ stays visible in faint ink; the rest reveal on demand.
+      expect(await shown(trigger)).toBe(1);
+      await expect(trigger).toHaveCSS("color", await token("--faint"));
+      if (target === folder) expect(await shown(line.locator("[data-catalog-add]"))).toBe(0);
+      await line.hover();
+      if (target === folder) expect(await shown(line.locator("[data-catalog-add]"))).toBe(1);
+      // Every row control is an SVG icon, never a text glyph.
+      for (const control of await line
+        .locator(".catalog-row-actions .category-menu-button, .catalog-drag-grip")
+        .all()) {
+        await expect(control.locator("svg")).toHaveCount(1);
+        await expect(control).toHaveText("");
+      }
+      await trigger.hover();
+      await expect(trigger).toHaveCSS("background-color", await token("--hover"));
+      await trigger.click();
+      const item = line.getByRole("menuitem", { name: "Properties", exact: true });
+      await item.hover();
+      await expect(item).toHaveCSS("background-color", await token("--hover"));
+      await page.keyboard.press("Escape");
+    }
+    await category.locator(":scope > .catalog-tree-row").click({ button: "right" });
+    const contextItem = page
+      .locator(".catalog-context-menu")
+      .getByRole("menuitem", { name: "Cut", exact: true });
+    await contextItem.hover();
+    await expect(contextItem).toHaveCSS("background-color", await token("--hover"));
+    await page.keyboard.press("Escape");
+
+    // The narrow pencil and the menu item share one name: Properties.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const properties = folder.getByRole("button", {
+      name: "Properties for Discoverable folder",
+      exact: true,
+    });
+    await expect(properties).toBeVisible();
+    await expect(
+      folder.getByRole("button", { name: "Create in Discoverable folder", exact: true }),
+    ).toBeVisible();
+    await properties.click();
+    await expect(folder.locator(".catalog-details-popover")).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // An empty tree does not reserve half the screen.
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(base() + "/categories?q=no-such-catalog-entry");
+      const empty = page.locator(".catalog-tree .category-empty");
+      await expect(empty).toBeVisible();
+      const [tree, message] = await Promise.all([
+        page.locator(".catalog-tree").boundingBox(),
+        empty.boundingBox(),
+      ]);
+      // The tree holds its message (and the paragraph's own margins), not 50vh.
+      await expect(page.locator(".catalog-tree")).toHaveCSS("min-height", "0px");
+      expect(tree!.height).toBeLessThanOrEqual(message!.height + 32);
+    }
+    expect(obs.pageErrors).toEqual([]);
+    expect(obs.consoleErrors).toEqual([]);
   });
   test.beforeAll(async () => {
     await startServer({ seed: true });
@@ -1485,7 +1587,9 @@ test.describe("inline catalog moves", () => {
       .click();
     await folder.focus();
     await page.keyboard.press("Control+v");
-    await expect(page.locator("#catalog-live")).toHaveText("Can't move a folder into itself");
+    await expect(page.locator("#catalog-live")).toHaveText(
+      "A folder can't move into itself or one of its subfolders.",
+    );
     await expect(folder).toHaveAttribute("data-parent-id", "0");
     await destination.locator(":scope > .catalog-tree-row").click({ button: "right" });
     await page.getByRole("menuitem", { name: "Paste here", exact: true }).click();
@@ -1687,11 +1791,13 @@ test.describe("inline catalog moves", () => {
     await page.mouse.move(point.x, point.y, { steps: 10 });
     await expect(cycleLine).toHaveClass(/catalog-drop-invalid/);
     await expect(page.locator(".catalog-drop-reason")).toHaveText(
-      "Can't move a folder into itself",
+      "A folder can't move into itself or one of its subfolders.",
     );
     expect(await rowGeometry(page)).toEqual(before);
     await page.mouse.up();
-    await expect(page.locator("#catalog-live")).toHaveText("Can't move a folder into itself");
+    await expect(page.locator("#catalog-live")).toHaveText(
+      "A folder can't move into itself or one of its subfolders.",
+    );
     if (originalViewport) await page.setViewportSize(originalViewport);
     await page.reload();
     await expect(source).toHaveAttribute("data-parent-id", "0");
@@ -2550,6 +2656,9 @@ test.describe("inline catalog rename", () => {
     const input = target.locator('input[name="name"]');
     await expect(input).toHaveValue("Rename Alpha");
     await expect(input).toBeFocused();
+    // The field meets the small control size (30px) without growing the row.
+    expect((await input.boundingBox())?.height).toBe(30);
+    expect(await input.evaluate((el) => getComputedStyle(el).fontSize)).toBe("13px");
     expect(await input.evaluate((el) => (el as HTMLInputElement).selectionStart)).toBe(0);
     expect(await input.evaluate((el) => (el as HTMLInputElement).selectionEnd)).toBe(
       "Rename Alpha".length,
@@ -3284,6 +3393,8 @@ test.describe("inline catalog creation destination", () => {
       await expect(input).toBeFocused();
       await page.keyboard.press("Shift+Tab");
       await expect(clear(page)).toBeFocused();
+      await expect(clear(page).locator("svg")).toHaveCount(1);
+      await expect(clear(page)).toHaveText("");
       if (viewport.width < 1100) {
         expect((await clear(page).boundingBox())?.height).toBeGreaterThanOrEqual(44);
       }

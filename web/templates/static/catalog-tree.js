@@ -37,6 +37,36 @@
     item.append(kbd);
     item.setAttribute("aria-keyshortcuts", aria);
   }
+  // Icons drawn like the server's folder and category icons: a 24px grid,
+  // 16px on screen, in the current text colour and hidden from assistive tech.
+  function icon(...shapes) {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    Object.entries({
+      viewBox: "0 0 24 24",
+      width: "16",
+      height: "16",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "1.8",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+    }).forEach(([name, value]) => svg.setAttribute(name, value));
+    for (const [tag, attributes] of shapes) {
+      const shape = document.createElementNS(ns, tag);
+      Object.entries(attributes).forEach(([name, value]) => shape.setAttribute(name, value));
+      svg.append(shape);
+    }
+    return svg;
+  }
+  const gripIcon = () =>
+    icon(
+      ...[6, 12, 18].flatMap((cy) =>
+        [9, 15].map((cx) => ["circle", { cx, cy, r: "1.5", fill: "currentColor", stroke: "none" }]),
+      ),
+    );
+  const closeIcon = () => icon(["path", { d: "M18 6 6 18M6 6l12 12" }]);
   function closeCreator() {
     if (!creator) return;
     creator.observer?.disconnect();
@@ -409,7 +439,7 @@
         grip.className = "catalog-drag-grip";
         grip.setAttribute("aria-hidden", "true");
         grip.title = t("js.catalog.drag_to_move");
-        grip.textContent = "⠿";
+        grip.append(gripIcon());
         line.prepend(grip);
       }
       const disclosure = row.querySelector(
@@ -970,7 +1000,7 @@
       label.setAttribute("aria-live", "polite");
       const reset = document.createElement("button");
       reset.type = "button";
-      reset.textContent = "✕";
+      reset.append(closeIcon());
       reset.setAttribute("aria-label", t("js.catalog.create_top_instead"));
       const paint = () => {
         label.textContent = folder

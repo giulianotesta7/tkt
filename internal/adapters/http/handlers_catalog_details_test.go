@@ -175,7 +175,7 @@ func TestCatalogInlineMoveTopAndSpanish(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec = h.postForm(t, path, url.Values{"inline": {"1"}, "folder_id": {id(parent)}}, false)
-	if json.Unmarshal([]byte(rec.Header().Get("HX-Trigger")), &event) != nil || event["catalog:moved"]["message"] != "'Payroll' movido a People" {
+	if json.Unmarshal([]byte(rec.Header().Get("HX-Trigger")), &event) != nil || event["catalog:moved"]["message"] != "«Payroll» movido a People" {
 		t.Errorf("Spanish move: %d %#v", rec.Code, event)
 	}
 }
