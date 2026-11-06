@@ -324,3 +324,55 @@ func TestConfirmResolution(t *testing.T) {
 		}
 	})
 }
+
+// TestResolutionDecisionRequiresResolved pins issue #494: the requester can
+// only confirm or reject a resolution while the ticket is resolved. Every other
+// state is refused as an invalid transition with no write — the ticket row
+// (state, workflow pin, timestamps), the audit trail and the notifications
+// stay exactly as they were.
+func TestResolutionDecisionRequiresResolved(t *testing.T) {
+	decisions := []struct {
+		name string
+		to   domain.State
+		call func(*application.TicketService, context.Context, domain.User, int64) (*domain.Ticket, error)
+	}{
+		{"reject", domain.StateInProgress, (*application.TicketService).RejectResolution},
+		{"confirm", domain.StateClosed, (*application.TicketService).ConfirmResolution},
+	}
+	states := []domain.State{domain.StateNew, domain.StateInProgress, domain.StateClosed, domain.StateCancelled}
+	for _, d := range decisions {
+		for _, state := range states {
+			t.Run(d.name+" "+string(state), func(t *testing.T) {
+				h := newTicketHarness()
+				requester := h.users.seedRole("Bob", "bob@example.com", domain.RoleUser, true)
+				cat := h.categories.seed("Bugs")
+				ticket := seededTicket(h.tickets, cat.ID, state)
+				ticket.RequesterUserID = &requester.ID
+				versionID := int64(7)
+				ticket.WorkflowVersionID = &versionID
+				if err := h.tickets.Update(context.Background(), &ticket); err != nil {
+					t.Fatalf("seed ticket: %v", err)
+				}
+				actor := domain.User{ID: requester.ID, Name: requester.Name, Email: requester.Email, Role: domain.RoleUser}
+				h.clock.Advance(timeMinute)
+
+				_, err := d.call(h.svc, context.Background(), actor, ticket.ID)
+				var invalid *domain.InvalidTransitionError
+				if !errors.As(err, &invalid) || invalid.From != state || invalid.To != d.to {
+					t.Fatalf("%s on a %s ticket must be refused as %s -> %s, got %v", d.name, state, state, d.to, err)
+				}
+				stored, _ := h.tickets.GetByID(context.Background(), ticket.ID, application.TicketQuery{Scope: application.ScopeAll})
+				if stored.State != state || stored.WorkflowVersionID == nil || *stored.WorkflowVersionID != versionID ||
+					!stored.UpdatedAt.Equal(ticket.UpdatedAt) || stored.ResolvedAt != nil || stored.ClosedAt != nil {
+					t.Fatalf("%s on a %s ticket must not write, stored = %+v", d.name, state, stored)
+				}
+				if events, _ := h.audits.ListByTicket(context.Background(), ticket.ID); len(events) != 0 {
+					t.Fatalf("%s on a %s ticket must not be audited, got %d events", d.name, state, len(events))
+				}
+				if len(h.tx.notifications) != 0 {
+					t.Fatalf("%s on a %s ticket must not notify, got %d notifications", d.name, state, len(h.tx.notifications))
+				}
+			})
+		}
+	}
+}

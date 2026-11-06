@@ -352,6 +352,47 @@ func TestSigninOversizeImageIs413(t *testing.T) {
 	}
 }
 
+// TestSigninUnreadableImageRendersTheSectionRejection pins issue #388: a file
+// part that cannot be read answers the section's own rejection — the banner,
+// the typed text kept, nothing stored — instead of a bare generic 400. The
+// request carries an already parsed form whose file part points at no content,
+// which is how a spooled part whose temp file vanished looks to the handler.
+func TestSigninUnreadableImageRendersTheSectionRejection(t *testing.T) {
+	h := newHarness(t)
+	seeded := domain.SigninPanel{Title: "Before", Content: domain.SigninContentNone, Background: domain.SigninBackgroundDark}
+	if err := h.store.SigninStore().SetSignin(context.Background(), seeded, nil); err != nil {
+		t.Fatalf("seed panel: %v", err)
+	}
+
+	form := url.Values{"title": {"Typed title"}, "background": {domain.SigninBackgroundDark}}
+	req := httptest.NewRequest(http.MethodPost, "/settings/signin", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", sessionCookie+"="+h.adminSession.ID)
+	req.MultipartForm = &multipart.Form{File: map[string][]*multipart.FileHeader{
+		signinBackgroundField: {{Filename: "panel.png", Size: 64}},
+	}}
+	rec := httptest.NewRecorder()
+	h.mw.Wrap(h.mux).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`class="error-banner" role="alert"`,
+		"the background image could not be read; upload it again",
+		`action="/settings/signin"`,
+		`value="Typed title"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the rejection must contain %q, got: %s", want, body)
+		}
+	}
+	if got := storedSignin(t, h); got.Panel.Title != "Before" || got.HasBackground() {
+		t.Errorf("stored panel after an unreadable upload = %+v, want the seeded one untouched", got.Panel)
+	}
+}
+
 // TestSigninTitleIsRenderedEscaped proves panel text is never markup: a saved
 // script tag renders as text on the login page.
 func TestSigninTitleIsRenderedEscaped(t *testing.T) {
