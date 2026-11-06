@@ -208,3 +208,34 @@ func TestVisitChangedWithNoTicketsIsEmpty(t *testing.T) {
 		t.Fatalf("Changed(nil) = %v, %v; want empty, nil", got, err)
 	}
 }
+
+// Issue #430: the visit reads only the notifications that existed when the
+// mark was taken, before the ticket was read. One written in between (after
+// the mark, before the visit is recorded) was never on screen and stays
+// unread.
+func TestVisitLeavesNotificationsWrittenAfterTheMarkUnread(t *testing.T) {
+	f := newVisitFixture(t, 1)
+	tk := f.tickets[0]
+	ctx := context.Background()
+	store := f.s.TicketVisitStore()
+	insertNotifications(t, f.s, domain.Notification{UserID: f.ana, TicketID: tk, Kind: domain.NotificationAssigned, ActorUserID: &f.bob, CreatedAt: testClock})
+	mark, err := store.Mark(ctx, tk)
+	if err != nil {
+		t.Fatalf("Mark: %v", err)
+	}
+	insertNotifications(t, f.s, domain.Notification{UserID: f.ana, TicketID: tk, Kind: domain.NotificationStateChanged, ActorUserID: &f.bob, CreatedAt: testClock})
+	if err := store.RecordVisit(ctx, f.ana, tk, mark, testClock.Add(time.Hour)); err != nil {
+		t.Fatalf("RecordVisit: %v", err)
+	}
+	rows, err := f.s.NotificationStore().ListForUser(ctx, f.ana, 50)
+	if err != nil {
+		t.Fatalf("ListForUser: %v", err)
+	}
+	read := map[domain.NotificationKind]bool{}
+	for _, n := range rows {
+		read[n.Kind] = n.ReadAt != nil
+	}
+	if want := map[domain.NotificationKind]bool{domain.NotificationAssigned: true, domain.NotificationStateChanged: false}; !reflect.DeepEqual(read, want) {
+		t.Fatalf("read by kind = %v, want %v", read, want)
+	}
+}
