@@ -172,7 +172,11 @@ func TestTicketVisitRecordVisitReadsOnlyThatTicketsNotifications(t *testing.T) {
 	visits.addNotification(readerID, otherID)
 	visits.addNotification(6, openedID)
 
-	if err := svc.RecordVisit(context.Background(), visitActor(readerID, domain.RoleAgent), openedID, application.VisitMark{}); err != nil {
+	mark, err := svc.Mark(context.Background(), openedID)
+	if err != nil {
+		t.Fatalf("Mark: %v", err)
+	}
+	if err := svc.RecordVisit(context.Background(), visitActor(readerID, domain.RoleAgent), openedID, mark); err != nil {
 		t.Fatalf("RecordVisit: %v", err)
 	}
 	for i, n := range visits.notifications {
@@ -203,5 +207,18 @@ func TestTicketVisitServicePropagatesStoreErrors(t *testing.T) {
 	}
 	if _, err := svc.Changed(ctx, actor, []int64{1}); !errors.Is(err, wantErr) {
 		t.Errorf("Changed error = %v, want %v", err, wantErr)
+	}
+}
+
+// An empty list page answers an empty map without reaching the store (issue
+// #430): a failing store proves the call never happens.
+func TestTicketVisitChangedOnAnEmptyPageSkipsTheStore(t *testing.T) {
+	visits, svc, _ := newVisitHarness()
+	visits.changedErr = errors.New("store must not be called")
+	for _, ids := range [][]int64{nil, {}} {
+		got, err := svc.Changed(context.Background(), visitActor(1, domain.RoleAgent), ids)
+		if err != nil || got == nil || len(got) != 0 {
+			t.Fatalf("Changed(%v) = %v, %v; want an empty map and no error", ids, got, err)
+		}
 	}
 }

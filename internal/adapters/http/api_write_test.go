@@ -156,6 +156,34 @@ func TestAPIWriteConfirmReject(t *testing.T) {
 	}
 }
 
+// TestAPIWriteRejectRequiresResolved pins issue #494 at the API: rejecting a
+// ticket that was never resolved answers 422 rejected and writes nothing, so
+// the ticket keeps its state and its workflow.
+func TestAPIWriteRejectRequiresResolved(t *testing.T) {
+	for _, state := range []domain.State{domain.StateNew, domain.StateInProgress} {
+		t.Run(string(state), func(t *testing.T) {
+			f := newAPIFixture(t)
+			ticket := apiOwnTicket(t, f, "Never resolved")
+			if state != domain.StateNew {
+				f.h.seedTransition(t, ticket.ID, state, "")
+			}
+			_, token := apiWriteKey(t, f, f.user, "tickets:write", "tickets:read")
+			path := fmt.Sprintf("/api/v1/tickets/%d", ticket.ID)
+			before := f.request("GET", path, "Bearer "+token, "", "").Body.String()
+			counts := f.domainCounts(t)
+
+			w := f.request("POST", path+"/reject", "Bearer "+token, `{}`, "application/json")
+			assertAPIProblem(t, w, problemRejected, path+"/reject")
+			if after := f.request("GET", path, "Bearer "+token, "", "").Body.String(); after != before {
+				t.Fatalf("refused reject changed the ticket:\nbefore %s\nafter  %s", before, after)
+			}
+			if got := f.domainCounts(t); got != counts {
+				t.Fatalf("refused reject wrote rows: %v -> %v", counts, got)
+			}
+		})
+	}
+}
+
 func TestAPIWriteScopeAndTransportRejections(t *testing.T) {
 	for _, endpoint := range []string{"", "/transition", "/comments", "/confirm", "/reject", "/workflow/steps/1/complete"} {
 		name := endpoint

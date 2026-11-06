@@ -181,4 +181,65 @@ func TestSigninStoreWriteIsOneTransaction(t *testing.T) {
 	}
 }
 
+// TestSigninStorePanelWriteKeepsTheStoredImage pins issue #388: a save with no
+// file writes the text rows and keeps whatever image the store holds when the
+// transaction runs. It carries no bytes, so it can never write back an image a
+// concurrent save replaced or removed.
+func TestSigninStorePanelWriteKeepsTheStoredImage(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	first := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 16)...)
+	second := append([]byte("\xFF\xD8\xFF\xE0"), make([]byte, 24)...)
+	if err := s.SigninStore().SetSignin(ctx, domain.SigninPanel{Title: "One", Background: domain.SigninBackgroundImage}, first); err != nil {
+		t.Fatalf("SetSignin: %v", err)
+	}
+	// Another save replaces the image after this one's read saw the first.
+	if err := s.SigninStore().SetSignin(ctx, domain.SigninPanel{Title: "Two", Background: domain.SigninBackgroundImage}, second); err != nil {
+		t.Fatalf("SetSignin replacing the image: %v", err)
+	}
+
+	if err := s.SigninStore().SetSigninPanel(ctx, domain.SigninPanel{Title: "Three", Background: domain.SigninBackgroundImage}); err != nil {
+		t.Fatalf("SetSigninPanel: %v", err)
+	}
+	got, err := s.SigninStore().GetSignin(ctx)
+	if err != nil {
+		t.Fatalf("GetSignin: %v", err)
+	}
+	if got.Panel.Title != "Three" || got.Panel.Background != domain.SigninBackgroundImage {
+		t.Errorf("panel = %+v, want the new text on the image background", got.Panel)
+	}
+	if string(got.Background) != string(second) || got.BackgroundMIME != domain.SigninBackgroundJPEG {
+		t.Errorf("image = %d bytes (%s), want the current %d-byte JPEG kept", len(got.Background), got.BackgroundMIME, len(second))
+	}
+}
+
+// TestSigninStorePanelWriteAfterARemovalStaysOnDark proves the other half: when
+// the image was removed before the panel write commits, the write does not
+// restore it, and an "image" style with nothing to show is stored as dark —
+// the same surface RemoveBackground leaves.
+func TestSigninStorePanelWriteAfterARemovalStaysOnDark(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	if err := s.SigninStore().SetSignin(ctx, domain.SigninPanel{Title: "One", Background: domain.SigninBackgroundImage}, append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 16)...)); err != nil {
+		t.Fatalf("SetSignin: %v", err)
+	}
+	if err := s.SigninStore().SetSignin(ctx, domain.SigninPanel{Title: "One", Background: domain.SigninBackgroundDark}, nil); err != nil {
+		t.Fatalf("remove the image: %v", err)
+	}
+
+	if err := s.SigninStore().SetSigninPanel(ctx, domain.SigninPanel{Title: "Two", Background: domain.SigninBackgroundImage}); err != nil {
+		t.Fatalf("SetSigninPanel: %v", err)
+	}
+	got, err := s.SigninStore().GetSignin(ctx)
+	if err != nil {
+		t.Fatalf("GetSignin: %v", err)
+	}
+	if got.HasBackground() {
+		t.Errorf("a panel write restored a removed image: %d bytes", len(got.Background))
+	}
+	if got.Panel.Title != "Two" || got.Panel.Background != domain.SigninBackgroundDark {
+		t.Errorf("panel = %+v, want the new text on the dark background", got.Panel)
+	}
+}
+
 var _ application.SigninStore = (*settingsStore)(nil)

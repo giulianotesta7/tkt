@@ -510,10 +510,13 @@ type NotificationStore interface {
 
 // VisitMark is how much of one ticket's history a reader had on screen: the
 // newest audit event id and the newest comment id when it was read (issue
-// #415). Ids, not instants, because instants are stored to the second.
+// #415), plus the newest notification id about the ticket, so the visit reads
+// only the bell rows that existed before the page did (issue #430). Ids, not
+// instants, because instants are stored to the second.
 type VisitMark struct {
-	AuditID   int64
-	CommentID int64
+	AuditID        int64
+	CommentID      int64
+	NotificationID int64
 }
 
 // TicketVisitStore records when each user last opened each ticket and answers
@@ -526,8 +529,9 @@ type TicketVisitStore interface {
 	// new instead of being swallowed by the visit.
 	Mark(ctx context.Context, ticketID int64) (VisitMark, error)
 	// RecordVisit stores the mark for userID and, in the same transaction,
-	// marks userID's unread notifications about that ticket read at instant
-	// at. A mark never moves backwards.
+	// marks userID's unread notifications about that ticket up to
+	// mark.NotificationID read at instant at; later ones were never on screen
+	// and stay unread. A mark never moves backwards.
 	RecordVisit(ctx context.Context, userID, ticketID int64, mark VisitMark, at time.Time) error
 	// Changed reports which of ticketIDs have, past userID's mark (or since
 	// creation when userID never opened them), an audit event or a comment
@@ -1653,6 +1657,13 @@ type SigninStore interface {
 	// transaction, so a submission can never be half applied. A nil background
 	// means the instance holds no background image and deletes the stored row.
 	SetSignin(ctx context.Context, panel domain.SigninPanel, background []byte) error
+	// SetSigninPanel writes the panel's text facts and KEEPS whatever background
+	// image the store holds when its transaction runs (issue #388). A save with
+	// no file uses it instead of writing back the image its earlier read saw, so
+	// a removal or replacement committed in between is never undone. An "image"
+	// style with no stored image is written as the dark surface, the state
+	// RemoveBackground leaves.
+	SetSigninPanel(ctx context.Context, panel domain.SigninPanel) error
 }
 
 // PreferencesStore persists per-user preferences (issue #210) in the

@@ -270,6 +270,180 @@ test.describe("Users", () => {
     await expect(drawer).toHaveCount(0);
   });
 
+  // Issue #355: a drawer that settles late must not move focus out of the field
+  // the user is already typing in. Before the fix the late settle pulled focus
+  // to the name field, the password was typed there, the required password
+  // stayed empty and the browser refused the submit: no request at all. The
+  // settle is held deterministically (no sleeps) by giving htmx a unique settle
+  // delay and keeping the timer it schedules with it until the test releases it.
+  test("Create user is sent when the drawer settles after typing starts", async ({ page }) => {
+    await login(page);
+    await page.goto(base() + "/users");
+    await page.evaluate(() => {
+      const win = window as Window & {
+        htmx: { config: { defaultSettleDelay: number } };
+        __releaseSettle?: () => void;
+      };
+      const hold = 864_000;
+      const nativeSetTimeout = window.setTimeout;
+      const held: Array<() => void> = [];
+      const settleDelay = win.htmx.config.defaultSettleDelay;
+      win.htmx.config.defaultSettleDelay = hold;
+      window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+        if (delay === hold && typeof handler === "function") {
+          held.push(() => handler(...args));
+          return 0;
+        }
+        return nativeSetTimeout(handler, delay, ...args);
+      }) as typeof window.setTimeout;
+      win.__releaseSettle = () => {
+        window.setTimeout = nativeSetTimeout;
+        win.htmx.config.defaultSettleDelay = settleDelay;
+        for (const settle of held.splice(0)) settle();
+      };
+    });
+    await page.getByRole("link", { name: /new user/i }).click();
+    const drawer = page.getByRole("dialog", { name: "New user" });
+    await expect(drawer).toBeVisible();
+    const stamp = Date.now().toString(36).slice(-6);
+    const name = `Late Settle ${stamp}`;
+    const email = `late-settle-${stamp}@example.com`;
+    const password = "LateSettle123!";
+    await drawer.getByLabel(/^name$/i).fill(name);
+    await drawer.getByLabel(/^email$/i).fill(email);
+    const passwordField = drawer.getByLabel(/^password$/i);
+    await passwordField.click();
+    await expect(passwordField).toBeFocused();
+
+    await page.evaluate(() =>
+      (window as Window & { __releaseSettle: () => void }).__releaseSettle(),
+    );
+    // The drawer's own settle work has run once it locks the page behind it.
+    await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+    await expect(passwordField).toBeFocused();
+    await page.keyboard.type(password);
+    await expect(drawer.getByLabel(/^name$/i)).toHaveValue(name);
+    await expect(passwordField).toHaveValue(password);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await drawer.getByRole("button", { name: /create user/i }).click();
+      },
+      {
+        endpoint: "/users",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      },
+    );
+    await expect(page.locator(`tr[data-user-name="${name}"]`)).toBeVisible();
+  });
+
+  // Issue #355: the drawer's in-flight guard only holds while a request is in
+  // flight. A submit htmx declines (here a refused htmx:confirm, the same exit
+  // a halted validation takes) sends nothing, so it must not leave the drawer
+  // busy and swallow the next click on Create user.
+  test("a declined Create user submit does not swallow the next one", async ({ page }) => {
+    await login(page);
+    await page.goto(base() + "/users");
+    await page.getByRole("link", { name: /new user/i }).click();
+    const drawer = page.getByRole("dialog", { name: "New user" });
+    const stamp = Date.now().toString(36).slice(-6);
+    const name = `Declined Once ${stamp}`;
+    await fillNewUserDrawer(page, {
+      name,
+      email: `declined-once-${stamp}@example.com`,
+      password: "DeclinedOnce123!",
+    });
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/users")
+        posts.push(request.url());
+    });
+    await page.evaluate(() => {
+      document.addEventListener("htmx:confirm", (event) => event.preventDefault(), {
+        once: true,
+      });
+    });
+    await drawer.getByRole("button", { name: /create user/i }).click();
+    await expect(drawer).not.toHaveAttribute("aria-busy", "true");
+    expect(posts).toEqual([]);
+
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await drawer.getByRole("button", { name: /create user/i }).click();
+      },
+      {
+        endpoint: "/users",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      },
+    );
+    expect(posts).toHaveLength(1);
+    await expect(page.locator(`tr[data-user-name="${name}"]`)).toBeVisible();
+  });
+
+  // The guard still stops a double click from creating the same user twice.
+  test("a double click on Create user sends one request", async ({ page }) => {
+    await login(page);
+    await page.goto(base() + "/users");
+    await page.getByRole("link", { name: /new user/i }).click();
+    const stamp = Date.now().toString(36).slice(-6);
+    const name = `Double Click ${stamp}`;
+    await fillNewUserDrawer(page, {
+      name,
+      email: `double-click-${stamp}@example.com`,
+      password: "DoubleClick123!",
+    });
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/users")
+        posts.push(request.url());
+    });
+    await assertHtmxSwap(
+      page,
+      async () => {
+        await page.getByRole("button", { name: /create user/i }).dblclick();
+      },
+      {
+        endpoint: "/users",
+        method: "POST",
+        expectedStatus: 200,
+        hxTarget: "#users-root",
+        expectedUrl: /\/users$/,
+      },
+    );
+    await expect(page.locator(`tr[data-user-name="${name}"]`)).toHaveCount(1);
+    expect(posts).toHaveLength(1);
+  });
+
+  // A refused save still moves focus to the field it names, even when the
+  // submit came from another field whose focus htmx carries across the swap.
+  test("a refused Create user focuses the field it names", async ({ page }) => {
+    await login(page);
+    await page.goto(base() + "/users");
+    await page.getByRole("link", { name: /new user/i }).click();
+    await fillNewUserDrawer(page, {
+      name: "Taken Address",
+      email: "alice@example.com",
+      password: "TakenAddress123!",
+    });
+    const refused = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && new URL(response.url()).pathname === "/users",
+    );
+    await page.getByLabel(/^password$/i).press("Enter");
+    expect((await refused).status()).toBeGreaterThanOrEqual(400);
+    const email = page.getByRole("dialog", { name: "New user" }).getByLabel(/^email$/i);
+    await expect(email).toHaveAttribute("aria-invalid", "true");
+    await expect(email).toBeFocused();
+  });
+
   // Issue #47 regression journeys: atomic Agent-to-User downgrade handoff.
 
   // Desks have their own screen (issue #484): the desk is resolved by its exact
@@ -907,6 +1081,51 @@ test.describe("Users", () => {
     expect(obs.pageErrors, "page errors").toEqual([]);
     expect(obs.failedRequests, "failed requests").toEqual([]);
     expect(obs.failedResponses, "5xx responses").toEqual([]);
+  });
+
+  test("an unrelated settle leaves focus in the edit drawer field", async ({ page }) => {
+    await login(page);
+    await page.goto(base() + "/users");
+    await page.locator("a.user-launcher").first().click();
+    const drawer = page.locator(".users-drawer");
+    await expect(drawer.getByLabel(/^name$/i)).toBeFocused();
+    await drawer.getByLabel(/^email$/i).focus();
+    await page.locator("#users-root").dispatchEvent("htmx:afterSettle", { bubbles: true });
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 0)));
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 0)));
+    await expect(drawer.getByLabel(/^email$/i)).toBeFocused();
+  });
+
+  test("an in-flight Create user keeps the drawer busy and sends once", async ({ page }) => {
+    await login(page);
+    await page.goto(base() + "/users");
+    await page.getByRole("link", { name: /new user/i }).click();
+    const drawer = page.getByRole("dialog", { name: "New user" });
+    const stamp = Date.now().toString(36).slice(-6);
+    const name = `Inflight ${stamp}`;
+    await fillNewUserDrawer(page, {
+      name,
+      email: `inflight-${stamp}@example.com`,
+      password: "Inflight123!x",
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const posts: string[] = [];
+    await page.route("**/users", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      posts.push(route.request().url());
+      await gate;
+      await route.continue();
+    });
+    await drawer.getByRole("button", { name: /create user/i }).click();
+    await expect.poll(() => posts.length).toBe(1);
+    await expect(drawer).toHaveAttribute("aria-busy", "true");
+    await drawer.getByLabel(/^email$/i).press("Enter");
+    await page.keyboard.press("Escape");
+    await expect(drawer).toHaveAttribute("aria-busy", "true");
+    release();
+    await expect(page.locator(`tr[data-user-name="${name}"]`)).toHaveCount(1);
+    expect(posts).toHaveLength(1);
   });
 });
 

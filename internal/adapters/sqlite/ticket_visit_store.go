@@ -18,14 +18,15 @@ type ticketVisitStore struct {
 
 func newTicketVisitStore(db *sql.DB) *ticketVisitStore { return &ticketVisitStore{db: db} }
 
-// Mark reads the newest audit event and comment ids of the ticket. A ticket
-// with no history answers zero marks.
+// Mark reads the newest audit event, comment and notification ids of the
+// ticket. A ticket with no history answers zero marks.
 func (vs *ticketVisitStore) Mark(ctx context.Context, ticketID int64) (application.VisitMark, error) {
 	var mark application.VisitMark
 	if err := vs.db.QueryRowContext(ctx,
 		`SELECT (SELECT COALESCE(MAX(id), 0) FROM audit_events WHERE ticket_id = ?),
-		        (SELECT COALESCE(MAX(id), 0) FROM comments WHERE ticket_id = ?)`,
-		ticketID, ticketID).Scan(&mark.AuditID, &mark.CommentID); err != nil {
+		        (SELECT COALESCE(MAX(id), 0) FROM comments WHERE ticket_id = ?),
+		        (SELECT COALESCE(MAX(id), 0) FROM notifications WHERE ticket_id = ?)`,
+		ticketID, ticketID, ticketID).Scan(&mark.AuditID, &mark.CommentID, &mark.NotificationID); err != nil {
 		return application.VisitMark{}, fmt.Errorf("sqlite: ticket visit mark: %w", err)
 	}
 	return mark, nil
@@ -33,7 +34,8 @@ func (vs *ticketVisitStore) Mark(ctx context.Context, ticketID int64) (applicati
 
 // RecordVisit upserts the visit with MAX on both marks, so a slower
 // concurrent open never lowers them, and marks the reader's unread
-// notifications about the ticket read in the same transaction.
+// notifications about the ticket, up to the mark, read in the same
+// transaction.
 func (vs *ticketVisitStore) RecordVisit(ctx context.Context, userID, ticketID int64, mark application.VisitMark, at time.Time) error {
 	tx, err := vs.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -50,8 +52,8 @@ func (vs *ticketVisitStore) RecordVisit(ctx context.Context, userID, ticketID in
 		return fmt.Errorf("sqlite: record ticket visit: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE notifications SET read_at = ? WHERE user_id = ? AND ticket_id = ? AND read_at IS NULL`,
-		formatTime(at), userID, ticketID); err != nil {
+		`UPDATE notifications SET read_at = ? WHERE user_id = ? AND ticket_id = ? AND id <= ? AND read_at IS NULL`,
+		formatTime(at), userID, ticketID, mark.NotificationID); err != nil {
 		return fmt.Errorf("sqlite: read ticket notifications: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
