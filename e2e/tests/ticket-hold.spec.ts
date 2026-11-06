@@ -4,7 +4,9 @@
  * The canonical browser path of the hold: an agent puts an open ticket on hold
  * with a mandatory reason, the agent's detail reads the hold banner, the
  * on-hold chip and the PAUSED resolution milestone, the requester reads "This
- * ticket is waiting for your reply" plus the reason and the timeline narrative,
+ * ticket is waiting for your reply" plus the reason directly above the reply
+ * box, reached from the header's On hold link (issue #423), and the timeline
+ * narrative,
  * the agent resumes (banner/chip gone, the resolution clock running again), the
  * requester's reply to a new hold ends it (S1), and resolving a held ticket
  * ends the hold in the same write.
@@ -36,6 +38,7 @@ import {
   assertNothingClipped,
   collectObservability,
   expectHairlineBorder,
+  measureContrast,
 } from "./helpers/layout.js";
 import { createTicketViaUi } from "./helpers/navigation.js";
 import { applyTransition, openTicketActions } from "./helpers/ticket.js";
@@ -392,16 +395,85 @@ test.describe("Ticket on hold", () => {
     await page.goto(base() + detailPath);
     await expect(page.locator("#ticket-detail")).toBeVisible();
     const requesterBanner = page.locator("#ticket-detail .hold-banner");
+    await expect(requesterBanner).toHaveCount(1);
     await expect(requesterBanner).toBeVisible();
+    await expect(requesterBanner).toHaveAttribute("role", "status");
     await expect(requesterBanner.locator(".hold-banner-title")).toHaveText(
       "This ticket is waiting for your reply",
     );
+    // The staff and requester views carry the same reason text.
     await expect(requesterBanner.locator(".hold-banner-reason")).toHaveText(reason);
     // The hold is the agent's to end: the requester gets no control.
     await expect(requesterBanner.getByRole("button", { name: "Resume" })).toHaveCount(0);
     await expect(page.locator("#hold-reason")).toHaveCount(0);
-    await expect(stateSection(page).locator(".chip")).toHaveText("On hold");
     await expect(page.locator("#timeline")).toContainText(`put the ticket on hold: ${reason}`);
+
+    // Issue #423: nothing renders above the breadcrumb and the title, and the
+    // notice sits inside the reply block, directly above the composer.
+    await expect(page.locator("#ticket-detail > :first-child")).toHaveClass(
+      /command-header detail-header/,
+    );
+    await expect(page.locator("#reply > #hold-notice")).toHaveCount(1);
+    const placement = await page.evaluate(() => {
+      const header = document.querySelector("#ticket-detail .command-header");
+      const notice = document.getElementById("hold-notice");
+      const composer = document.querySelector("#reply .comment-form");
+      if (!header || !notice || !composer) return null;
+      return {
+        headerBottom: header.getBoundingClientRect().bottom,
+        noticeTop: notice.getBoundingClientRect().top,
+        noticeBottom: notice.getBoundingClientRect().bottom,
+        composerTop: composer.getBoundingClientRect().top,
+        nextSibling: notice.nextElementSibling?.className ?? "",
+      };
+    });
+    expect(placement, `notice, header and composer must render at ${page.url()}`).not.toBeNull();
+    expect(placement?.noticeTop).toBeGreaterThan(placement?.headerBottom ?? Infinity);
+    expect(placement?.composerTop).toBeGreaterThanOrEqual(placement?.noticeBottom ?? Infinity);
+    expect(placement?.nextSibling).toMatch(/comment-form/);
+
+    // The On hold label beside the title is a keyboard-reachable link to the
+    // notice: Enter jumps there and moves focus onto it, clear of the sticky
+    // top bar, at both widths.
+    const holdLink = stateSection(page).getByRole("link", { name: "On hold" });
+    await expect(holdLink).toHaveAttribute("href", "#hold-notice");
+    await expect(holdLink).toHaveClass(/chip/);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
+      await page.goto(base() + detailPath);
+      await holdLink.focus();
+      await expect(holdLink).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new RegExp(`${detailPath}#hold-notice$`));
+      await expect(requesterBanner).toBeFocused();
+      await expect(requesterBanner).toBeInViewport();
+      const clearance = await page.evaluate(() => {
+        const bar = document.querySelector(".topbar");
+        const notice = document.getElementById("hold-notice");
+        return (
+          (notice?.getBoundingClientRect().top ?? 0) - (bar?.getBoundingClientRect().bottom ?? 0)
+        );
+      });
+      expect(clearance, `the notice must clear the sticky top bar at ${width}px`).toBeGreaterThan(
+        0,
+      );
+      await assertNoHorizontalOverflow(page, width);
+      await assertNothingClipped(page);
+      // The reason reads on its own surface in both themes.
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((value) => {
+          document.documentElement.dataset.theme = value;
+        }, theme);
+        for (const part of [".hold-banner-title", ".hold-banner-reason"]) {
+          const contrast = await measureContrast(requesterBanner.locator(part));
+          expect(
+            contrast.ratio,
+            `${part} in ${theme} at ${width}px: ${contrast.fg} on ${contrast.bg}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
 
     // ---------- S1/S2: the agent resumes and the clock restarts ----------
 

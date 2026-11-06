@@ -466,6 +466,10 @@ func TestTicketDetailStaffOnHoldBanner(t *testing.T) {
 	if strings.Contains(body, `class="hold-banner"`) {
 		t.Errorf("staff must not get the top banner any more, got: %s", body)
 	}
+	// Issue #423 is requester-only: the staff chip stays a plain label.
+	if strings.Contains(body, `href="#hold-notice"`) {
+		t.Errorf("the staff On hold chip must not link to a requester notice, got: %s", body)
+	}
 	heading := strings.Index(body, `<div class="prop-heading">SLA</div>`)
 	notice := strings.Index(body, `class="sla-hold-status"`)
 	if heading < 0 || notice < heading {
@@ -496,12 +500,14 @@ func TestTicketDetailRequesterOnHoldBanner(t *testing.T) {
 		`class="hold-banner"`,
 		`This ticket is waiting for your reply`,
 		`send us a photo of the jammed tray`,
-		`<span class="chip">On hold</span>`,
+		// Issue #423: the On hold label next to the title jumps to the notice.
+		`<a class="chip chip-link" href="#hold-notice">On hold</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("requester detail of a held ticket must contain %q, got: %s", want, body)
 		}
 	}
+	assertRequesterHoldNoticeAboveReply(t, body)
 	for _, absent := range []string{
 		`action="` + ticketPath(tkt.ID) + `/hold"`,
 		`action="` + ticketPath(tkt.ID) + `/resume"`,
@@ -511,6 +517,37 @@ func TestTicketDetailRequesterOnHoldBanner(t *testing.T) {
 		if strings.Contains(body, absent) {
 			t.Errorf("requester detail must NOT contain %q, got: %s", absent, body)
 		}
+	}
+
+	// When the hold ends, the notice and the link to it disappear.
+	if _, err := h.tickets.ResumeFromHold(t.Context(), *h.admin, tkt.ID); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	resumed := getDetailAs(t, h, ticketPath(tkt.ID), sess.ID, false).Body.String()
+	for _, absent := range []string{`class="hold-banner"`, `id="hold-notice"`, `href="#hold-notice"`, `This ticket is waiting for your reply`} {
+		if strings.Contains(resumed, absent) {
+			t.Errorf("a resumed ticket must NOT render %q for the requester, got: %s", absent, resumed)
+		}
+	}
+}
+
+// assertRequesterHoldNoticeAboveReply pins the issue #423 placement: nothing
+// renders above the breadcrumb and title, and the notice sits inside the reply
+// block directly above the composer, as the target of the On hold link.
+func assertRequesterHoldNoticeAboveReply(t *testing.T, body string) {
+	t.Helper()
+	header := strings.Index(body, `class="command-header detail-header"`)
+	reply := strings.Index(body, `id="reply"`)
+	notice := strings.Index(body, `class="hold-banner" id="hold-notice" tabindex="-1" role="status"`)
+	composer := strings.Index(body, `class="card comment-form"`)
+	if header < 0 || reply < 0 || notice < 0 || composer < 0 {
+		t.Fatalf("the requester detail must render header, reply block, notice and composer (header=%d reply=%d notice=%d composer=%d), got: %s", header, reply, notice, composer, body)
+	}
+	if !(header < reply && reply < notice && notice < composer) {
+		t.Errorf("the hold notice must sit inside the reply block above the composer, below the title (header=%d reply=%d notice=%d composer=%d)", header, reply, notice, composer)
+	}
+	if strings.Count(body, `class="hold-banner"`) != 1 {
+		t.Errorf("the requester detail must render the hold notice exactly once, got: %s", body)
 	}
 }
 

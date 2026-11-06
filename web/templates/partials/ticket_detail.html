@@ -2,13 +2,7 @@
 <div id="ticket-detail" hx-headers="{{.QueueHeaders}}">
 {{if .Error}}  <div class="error-banner" role="alert">{{.Error}}</div>
 {{end}}
-{{if and .View.Ticket.OnHoldSince .RequesterView}}  <div class="hold-banner" role="status">
-    <div class="hold-banner-text">
-      <p class="hold-banner-title">{{t "tickets.hold.banner.requester"}}</p>
-      <p class="hold-banner-reason">{{.View.Ticket.OnHoldReason}}</p>
-    </div>
-  </div>
-{{end}}  <div class="command-header detail-header">
+  <div class="command-header detail-header">
     <div class="detail-head">
       <div class="meta-row">
         <a href="{{.QueueHref}}">{{if .RequesterView}}{{t "tickets.detail.back_requester"}}{{else}}{{t "tickets.detail.back_queue"}}{{end}}</a>
@@ -26,7 +20,7 @@
 {{else}}
         <h1 class="command-title">{{.View.Ticket.Title}}</h1>
 {{end}}
-        <span class="detail-state">{{template "state_badge" (audienceStateBadge .View.Ticket.State .RequesterView)}}{{if .View.Ticket.OnHoldSince}} {{template "hold_chip" .}}{{end}}</span>
+        <span class="detail-state">{{template "state_badge" (audienceStateBadge .View.Ticket.State .RequesterView)}}{{if .View.Ticket.OnHoldSince}} {{if .RequesterView}}<a class="chip chip-link" href="#hold-notice">{{t "label.ticket.on_hold"}}</a>{{else}}{{template "hold_chip" .}}{{end}}{{end}}</span>
       </div>
       <p class="detail-meta">{{t "tickets.detail.opened_by"}} <span class="detail-meta-requester">{{.View.Ticket.RequesterName}}</span> · <time datetime="{{formatDatetime .View.Ticket.CreatedAt}}" title="{{formatTime .View.Ticket.CreatedAt}}">{{relativeTime .View.Ticket.CreatedAt .Now}}</time> · <span class="detail-meta-category">{{.View.Category.Name}}</span></p>
     </div>
@@ -171,10 +165,17 @@
   composer. Newest first renders this block ABOVE Activity — the newest entry is
   where the reader is about to write — and oldest first keeps it BELOW, which is
   how the feed has always read. Steps stays above both, in either order.
+  The requester's on-hold notice (issue #423) opens the block, directly above
+  the composer where the reply is written, as the target of the On hold link
+  next to the title; nothing renders above the breadcrumb.
 */}}
 {{define "detail_replies"}}
     <div class="replies" id="reply">
-{{if .CanConfirm}}
+{{if and .View.Ticket.OnHoldSince .RequesterView}}      <div class="hold-banner" id="hold-notice" tabindex="-1" role="status">
+        <p class="hold-banner-title">{{t "tickets.hold.banner.requester"}}</p>
+        <p class="hold-banner-reason">{{.View.Ticket.OnHoldReason}}</p>
+      </div>
+{{end}}{{if .CanConfirm}}
 	<section class="card resolution-confirmation" id="resolution" aria-labelledby="resolution-confirmation-title">
 		<p class="resolution-eyebrow">{{t "tickets.detail.resolution.eyebrow"}}</p>
 		<h2 id="resolution-confirmation-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>{{t "tickets.detail.resolution.title"}}</h2>
