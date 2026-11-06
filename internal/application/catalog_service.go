@@ -196,10 +196,3 @@ func (s *CatalogService) UpdateCategoryFor(ctx context.Context, actor domain.Use
 func canManageCatalog(actor domain.User) bool {
 	return NewPolicy().Capabilities(actor.Role).Require(CapManageCategories)
 }
-
-func validateCatalogID(field string, id int64) error {
-	if id <= 0 {
-		return &domain.ValidationError{Field: field, Message: "identifier is required"}
-	}
-	return nil
-}

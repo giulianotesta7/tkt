@@ -1561,9 +1561,7 @@ test.describe("inline catalog moves", () => {
       toast.boundingBox(),
       page.locator(".tabbar").boundingBox(),
     ]);
-    expect(toastBox && tabbarBox && toastBox.y + toastBox.height).toBeLessThanOrEqual(
-      tabbarBox!.y,
-    );
+    expect(toastBox && tabbarBox && toastBox.y + toastBox.height).toBeLessThanOrEqual(tabbarBox!.y);
     expect(toastBox!.x).toBeGreaterThanOrEqual(0);
     expect(toastBox!.x + toastBox!.width).toBeLessThanOrEqual(390);
     await folder.focus();
@@ -3057,9 +3055,10 @@ test.describe("inline catalog creation and keyboard", () => {
     await expect(folderDelete).not.toHaveAttribute("aria-disabled", "true");
     await page.keyboard.press("Escape");
     if (viewport) await page.setViewportSize(viewport);
-    await expect(
-      folder.locator(":scope > .catalog-tree-row > .catalog-drag-grip"),
-    ).toHaveAttribute("title", "Drag to move");
+    await expect(folder.locator(":scope > .catalog-tree-row > .catalog-drag-grip")).toHaveAttribute(
+      "title",
+      "Drag to move",
+    );
     await folder.locator(":scope > .catalog-tree-row [data-category-menu]").click();
     await expect(folder.locator(":scope > .catalog-tree-row [data-catalog-cut]")).toBeVisible();
     await page.keyboard.press("Escape");
